@@ -1,0 +1,7 @@
+BasedOnStyle: Microsoft
+BreakBeforeBraces: Attach
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: Inline
+PointerAlignment: Left
+IndentCaseLabels: true
+InsertNewlineAtEOF: true

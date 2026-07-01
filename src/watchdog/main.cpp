@@ -1,6 +1,6 @@
-#include <windows.h>
-#include <string>
 #include <iostream>
+#include <string>
+#include <windows.h>
 
 int main() {
     std::cout << "Watchdog started." << std::endl;

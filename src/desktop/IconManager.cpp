@@ -1,7 +1,7 @@
 #include "IconManager.h"
+#include "common/Logger.h"
 #include <shlobj.h>
 #include <shlwapi.h>
-#include "common/Logger.h"
 
 #pragma comment(lib, "Shlwapi.lib")
 
@@ -29,7 +29,7 @@ void IconManager::EnumerateIcons() {
 
                             // Get File System Path
                             STRRET strPath;
-                            if (SUCCEEDED(pShellFolder->GetDisplayNameOf(pidlChild, SIGDN_FILESYSPATH, &strPath))) {
+                            if (SUCCEEDED(pShellFolder->GetDisplayNameOf(pidlChild, (SHGDNF)SIGDN_FILESYSPATH, &strPath))) {
                                 PWSTR pszPath;
                                 StrRetToStrW(&strPath, pidlChild, &pszPath);
                                 icon.path = pszPath;

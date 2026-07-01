@@ -15,12 +15,9 @@ bool DesktopWindow::Create(HINSTANCE hInstance, const common::DesktopConfig& con
 
     RegisterClassW(&wc);
 
-    m_hwnd = CreateWindowExW(
-        WS_EX_TOOLWINDOW, CLASS_NAME, L"Desktop",
-        WS_POPUP | WS_VISIBLE,
-        0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN),
-        nullptr, nullptr, hInstance, this
-    );
+    m_hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, CLASS_NAME, L"Desktop", WS_POPUP | WS_VISIBLE, 0, 0,
+                             GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN), nullptr, nullptr, hInstance,
+                             this);
 
     if (m_hwnd) {
         SetWindowPos(m_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
@@ -44,7 +41,7 @@ LRESULT CALLBACK DesktopWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
         switch (uMsg) {
             case WM_PAINT: {
                 PAINTSTRUCT ps;
-                HDC hdc = BeginPaint(hwnd, &ps);
+                BeginPaint(hwnd, &ps);
                 EndPaint(hwnd, &ps);
                 return 0;
             }

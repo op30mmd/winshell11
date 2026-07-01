@@ -16,11 +16,7 @@ bool TrayHost::Initialize(HWND hTaskbar) {
 
     RegisterClassW(&wc);
 
-    m_hwnd = CreateWindowExW(
-        0, CLASS_NAME, nullptr,
-        WS_CHILD, 0, 0, 0, 0,
-        hTaskbar, nullptr, wc.hInstance, this
-    );
+    m_hwnd = CreateWindowExW(0, CLASS_NAME, nullptr, WS_CHILD, 0, 0, 0, 0, hTaskbar, nullptr, wc.hInstance, this);
 
     if (m_hwnd) {
         UINT msg = RegisterWindowMessageW(L"TaskbarCreated");
@@ -54,6 +50,7 @@ LRESULT CALLBACK TrayHost::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARA
         switch (uMsg) {
             case WM_COPYDATA: {
                 PCOPYDATASTRUCT pcds = (PCOPYDATASTRUCT)lParam;
+                (void)pcds;
                 // De-serialize NOTIFYICONDATA and update m_icons
                 return TRUE;
             }

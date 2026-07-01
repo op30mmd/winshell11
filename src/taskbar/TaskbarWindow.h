@@ -1,6 +1,6 @@
 #pragma once
-#include <windows.h>
 #include "common/Config.h"
+#include <windows.h>
 
 namespace shell::taskbar {
 

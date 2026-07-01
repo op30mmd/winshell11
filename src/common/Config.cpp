@@ -1,7 +1,7 @@
 #include "Config.h"
-#include <windows.h>
-#include <shlobj.h>
 #include <fstream>
+#include <shlobj.h>
+#include <windows.h>
 
 namespace shell::common {
 
@@ -10,7 +10,7 @@ Config Config::Load() {
     return config;
 }
 
-bool Config::Save(const std::filesystem::path& path) const {
+bool Config::Save(const std::filesystem::path& /*path*/) const {
     return false;
 }
 

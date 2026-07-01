@@ -1,8 +1,8 @@
 #pragma once
-#include <windows.h>
-#include <vector>
-#include <string>
 #include <functional>
+#include <string>
+#include <vector>
+#include <windows.h>
 
 namespace shell::watcher {
 
@@ -22,9 +22,8 @@ public:
     const std::vector<WindowInfo>& GetWindows() const { return m_windows; }
 
 private:
-    static void CALLBACK WinEventProc(
-        HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd,
-        LONG idObject, LONG idChild, DWORD dwEventThread, DWORD dwmsEventTime);
+    static void CALLBACK WinEventProc(HWINEVENTHOOK hWinEventHook, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
+                                      DWORD dwEventThread, DWORD dwmsEventTime);
 
     void RefreshWindowList();
     bool IsTaskbarEligible(HWND hwnd);

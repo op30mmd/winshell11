@@ -20,12 +20,8 @@ bool TaskbarWindow::Create(HINSTANCE hInstance, const common::TaskbarConfig& con
     int screenWidth = GetSystemMetrics(SM_CXSCREEN);
     int screenHeight = GetSystemMetrics(SM_CYSCREEN);
 
-    m_hwnd = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW, CLASS_NAME, L"Taskbar",
-        WS_POPUP | WS_VISIBLE,
-        0, screenHeight - height, screenWidth, height,
-        nullptr, nullptr, hInstance, this
-    );
+    m_hwnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW, CLASS_NAME, L"Taskbar", WS_POPUP | WS_VISIBLE, 0,
+                             screenHeight - height, screenWidth, height, nullptr, nullptr, hInstance, this);
 
     if (m_hwnd) {
         RegisterAppBar(true);
@@ -35,7 +31,7 @@ bool TaskbarWindow::Create(HINSTANCE hInstance, const common::TaskbarConfig& con
 }
 
 void TaskbarWindow::RegisterAppBar(bool registerIt) {
-    APPBARDATA abd = { sizeof(abd), m_hwnd };
+    APPBARDATA abd = {sizeof(abd), m_hwnd};
     if (registerIt) {
         SHAppBarMessage(ABM_NEW, &abd);
         abd.uEdge = ABE_BOTTOM;

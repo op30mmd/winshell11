@@ -1,7 +1,7 @@
 #include "AppLauncher.h"
-#include <shlobj.h>
-#include <shellapi.h>
 #include "common/Logger.h"
+#include <shellapi.h>
+#include <shlobj.h>
 
 namespace shell::launcher {
 

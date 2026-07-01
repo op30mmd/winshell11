@@ -13,11 +13,7 @@ bool MainWindow::Create(HINSTANCE hInstance) {
 
     RegisterClassW(&wc);
 
-    m_hwnd = CreateWindowExW(
-        0, CLASS_NAME, L"ShellHost",
-        0, 0, 0, 0, 0,
-        HWND_MESSAGE, nullptr, hInstance, this
-    );
+    m_hwnd = CreateWindowExW(0, CLASS_NAME, L"ShellHost", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr, hInstance, this);
 
     return m_hwnd != nullptr;
 }
@@ -35,6 +31,11 @@ LRESULT CALLBACK MainWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPA
 
     if (pThis) {
         switch (uMsg) {
+            case WM_HOTKEY:
+                if (pThis->m_hotkeyHandler) {
+                    pThis->m_hotkeyHandler((int)wParam);
+                }
+                return 0;
             case WM_DESTROY:
                 PostQuitMessage(0);
                 return 0;

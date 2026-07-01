@@ -1,7 +1,7 @@
 #pragma once
-#include <windows.h>
 #include <functional>
 #include <map>
+#include <windows.h>
 
 namespace shell::host {
 

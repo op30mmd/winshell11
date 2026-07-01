@@ -1,7 +1,7 @@
 #pragma once
-#include <windows.h>
-#include <vector>
 #include <string>
+#include <vector>
+#include <windows.h>
 
 namespace shell::launcher {
 

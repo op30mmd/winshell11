@@ -1,8 +1,8 @@
 #pragma once
-#include <windows.h>
-#include <vector>
 #include <map>
 #include <string>
+#include <vector>
+#include <windows.h>
 
 namespace shell::tray {
 
@@ -27,7 +27,8 @@ private:
         HWND hWnd;
         UINT uID;
         bool operator<(const IconKey& other) const {
-            if (hWnd != other.hWnd) return hWnd < other.hWnd;
+            if (hWnd != other.hWnd)
+                return hWnd < other.hWnd;
             return uID < other.uID;
         }
     };
