@@ -144,30 +144,29 @@ bool FlyoutWindow::Create(HINSTANCE hInstance) {
     return true;
 }
 
-void FlyoutWindow::Show(HWND parent, int tx, int ty, int tw, int th) {
-    (void)th;
+void FlyoutWindow::Show(HWND parent, int /*tx*/, int /*ty*/, int /*tw*/, int /*th*/) {
     m_hwndParent = parent;
-    int x = tx + tw - m_width - 6;
-    int y = ty - m_height - 6;
 
     m_volume = GetCurrentVolume();
     m_hasBrightness = HasBrightnessControl();
-    if (m_hasBrightness)
-        m_brightness = GetCurrentBrightness();
-    else
-        m_brightness = -1;
+    m_brightness = m_hasBrightness ? GetCurrentBrightness() : -1;
+    m_wifiOn = true; // default on
 
-    std::wstring ws = GetWiFiStatus();
-    m_wifiOn = ws.find(L"connected") != std::wstring::npos;
-
-    // Recalculate height based on available sections
+    // Recalculate height
     int h = PAD + TG_H + 8 + SEP + 8;
     if (m_hasBrightness) h += 16 + SL_H + 6;
     h += 16 + SL_H + 8 + SEP + 8;
     h += 48 + 8 + SEP + 8;
     h += BTN_H + PAD;
-
     m_height = h;
+
+    // Position above the parent taskbar, right-aligned
+    RECT prc;
+    GetWindowRect(parent, &prc);
+    int x = prc.right - m_width - 6;
+    int y = prc.top - m_height - 6;
+    // Clamp to screen
+    if (y < 0) y = 0;
 
     SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, m_width, m_height,
                  SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -251,28 +250,30 @@ void FlyoutWindow::OnClick(int sect, HWND hwnd) {
 // ── WiFi ──────────────────────────────────────────────────────────
 
 std::wstring FlyoutWindow::GetWiFiStatus() {
-    std::wstring r = L"Off";
-    HANDLE h = nullptr;
-    DWORD ver = 0;
-    if (WlanOpenHandle(2, nullptr, &ver, &h) != ERROR_SUCCESS) return r;
-    PWLAN_INTERFACE_INFO_LIST il = nullptr;
-    if (WlanEnumInterfaces(h, nullptr, &il) == ERROR_SUCCESS && il->dwNumberOfItems > 0) {
-        auto& inf = il->InterfaceInfo[0];
-        if (inf.isState == wlan_interface_state_connected) {
-            PWLAN_CONNECTION_ATTRIBUTES attr = nullptr;
-            DWORD sz = 0;
-            WLAN_OPCODE_VALUE_TYPE oc;
-            if (WlanQueryInterface(h, &inf.InterfaceGuid,
-                                   wlan_intf_opcode_current_connection, nullptr,
-                                   &sz, (PVOID*)&attr, &oc) == ERROR_SUCCESS && attr) {
-                r = attr->strProfileName;
-                WlanFreeMemory(attr);
-            } else { r = L"Connected"; }
-        } else { r = L"Disconnected"; }
-        WlanFreeMemory(il);
+    // Quick check: look for a network adapter with "Wireless" or "Wi-Fi" in the name
+    ULONG len = sizeof(IP_ADAPTER_INFO) * 16;
+    std::vector<BYTE> buf(len);
+    PIP_ADAPTER_INFO ai = (PIP_ADAPTER_INFO)buf.data();
+    if (GetAdaptersInfo(ai, &len) == ERROR_SUCCESS) {
+        for (; ai; ai = ai->Next) {
+            if (ai->Type == IF_TYPE_IEEE80211) {
+                m_wifiOn = ai->IpAddressList.IpAddress.String[0] != '0';
+                if (m_wifiOn) {
+                    std::string d(ai->Description);
+                    // Extract a short name
+                    auto pos = d.find("Wi-Fi");
+                    if (pos == std::string::npos) pos = d.find("Wireless");
+                    if (pos != std::string::npos)
+                        return L"Connected";
+                    return L"Connected";
+                }
+                return L"Disconnected";
+            }
+        }
     }
-    WlanCloseHandle(h, nullptr);
-    return r;
+    // No wireless adapter found
+    m_wifiOn = false;
+    return L"Off";
 }
 
 void FlyoutWindow::ToggleWiFi() {
@@ -283,10 +284,16 @@ void FlyoutWindow::ToggleWiFi() {
 // ── Bluetooth ─────────────────────────────────────────────────────
 
 std::wstring FlyoutWindow::GetBluetoothStatus() {
-    bool found = false;
-    WmiExec(L"SELECT * FROM Win32_PNPEntity WHERE Service LIKE '%BTH%' OR Name LIKE '%Bluetooth%'",
-            [&](IWbemClassObject*) { found = true; });
-    return found ? L"On" : L"Off";
+    // Quick check via registry for Bluetooth radios
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        m_btOn = true;
+        return L"On";
+    }
+    m_btOn = false;
+    return L"Off";
 }
 
 void FlyoutWindow::ToggleBluetooth() {
@@ -390,7 +397,6 @@ void FlyoutWindow::SetVolume(int val) {
 // ── Network info ──────────────────────────────────────────────────
 
 std::wstring FlyoutWindow::GetNetworkInfo() {
-    std::wstring info;
     ULONG len = sizeof(IP_ADAPTER_INFO) * 16;
     std::vector<BYTE> buf(len);
     PIP_ADAPTER_INFO ai = (PIP_ADAPTER_INFO)buf.data();
@@ -398,17 +404,17 @@ std::wstring FlyoutWindow::GetNetworkInfo() {
         for (; ai; ai = ai->Next) {
             if ((ai->Type == MIB_IF_TYPE_ETHERNET || ai->Type == IF_TYPE_IEEE80211) &&
                 ai->IpAddressList.IpAddress.String[0] != '0') {
-                std::string d(ai->Description);
-                info = std::wstring(d.begin(), d.end());
-                info += L"\n";
+                std::string type = (ai->Type == IF_TYPE_IEEE80211) ? "Wi-Fi" : "Ethernet";
                 std::string ip(ai->IpAddressList.IpAddress.String);
-                info += std::wstring(ip.begin(), ip.end());
-                break;
+                std::string mask(ai->IpAddressList.IpMask.String);
+                auto wtype = std::wstring(type.begin(), type.end());
+                auto wip = std::wstring(ip.begin(), ip.end());
+                auto wmask = std::wstring(mask.begin(), mask.end());
+                return wtype + L"  IP: " + wip + L"\nMask: " + wmask;
             }
         }
     }
-    if (info.empty()) info = L"No network";
-    return info;
+    return L"No network";
 }
 
 // ═════════════════════════════════════════════════════════════════
