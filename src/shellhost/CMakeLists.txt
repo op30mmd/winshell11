@@ -14,7 +14,6 @@ target_link_libraries(shellhost PRIVATE
     shell_tray
     shell_launcher
     PowrProf.lib
-    Mmdevapi.lib
     Wlanapi.lib
     Iphlpapi.lib
     Winmm.lib

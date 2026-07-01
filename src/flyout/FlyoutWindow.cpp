@@ -2,11 +2,8 @@
 #include "common/Logger.h"
 #include "power/PowerManager.h"
 
-#include <dbt.h>
-#include <endpointvolume.h>
-#include <functiondiscoverykeys.h>
 #include <iphlpapi.h>
-#include <mmdeviceapi.h>
+#include <mmsystem.h>
 #include <wlanapi.h>
 #include <windowsx.h>
 #include <wbemidl.h>
@@ -110,14 +107,6 @@ static bool WmiExec(const std::wstring& query, Fn cb) {
     if (needUninit) CoUninitialize();
     return ok;
 }
-
-// ── Volume COM GUIDs (local defs to avoid linker deps) ────────────
-// {BCDE0395-E52F-467C-8E3D-C4579291692E}
-static const CLSID CLSID_MMDevEnum = {0xBCDE0395,0xE52F,0x467C,{0x8E,0x3D,0xC4,0x57,0x92,0x91,0x69,0x2E}};
-// {D666063F-1587-4E43-81F1-B948E807363F}
-static const IID IID_MMDevEnum = {0xD666063F,0x1587,0x4E43,{0x81,0xF1,0xB9,0x48,0xE8,0x07,0x36,0x3F}};
-// {5CDF2C82-841E-4546-972A-597CF47F18F9}
-static const IID IID_AudioVol = {0x5CDF2C82,0x841E,0x4546,{0x97,0x2A,0x59,0x7C,0xF4,0x7F,0x18,0xF9}};
 
 // ═════════════════════════════════════════════════════════════════
 //  FlyoutWindow implementation
@@ -277,7 +266,36 @@ std::wstring FlyoutWindow::GetWiFiStatus() {
 }
 
 void FlyoutWindow::ToggleWiFi() {
-    ShellExecuteW(nullptr, L"open", L"ms-settings:network-wifi", nullptr, nullptr, SW_SHOWNORMAL);
+    HANDLE hWlan = nullptr;
+    DWORD ver = 0;
+    if (WlanOpenHandle(2, nullptr, &ver, &hWlan) != ERROR_SUCCESS) {
+        ShellExecuteW(nullptr, L"open", L"ms-settings:network-wifi", nullptr, nullptr, SW_SHOWNORMAL);
+        m_wifiOn = !m_wifiOn;
+        return;
+    }
+    PWLAN_INTERFACE_INFO_LIST ifList = nullptr;
+    if (WlanEnumInterfaces(hWlan, nullptr, &ifList) == ERROR_SUCCESS) {
+        for (DWORD i = 0; i < ifList->dwNumberOfItems; i++) {
+            GUID guid = ifList->InterfaceInfo[i].InterfaceGuid;
+            // Read current radio state
+            PWLAN_RADIO_STATE radioState = nullptr;
+            DWORD rsSize = 0;
+            WLAN_OPCODE_VALUE_TYPE opCode;
+            if (WlanQueryInterface(hWlan, &guid, wlan_intf_opcode_radio_state,
+                                   nullptr, &rsSize, (PVOID*)&radioState, &opCode) == ERROR_SUCCESS && radioState) {
+                DOT11_RADIO_STATE newState = m_wifiOn ? dot11_radio_state_off : dot11_radio_state_on;
+                // Set the software radio state via WlanSetInterface
+                WLAN_PHY_RADIO_STATE phyState;
+                phyState.dwPhyIndex = 0;
+                phyState.dot11SoftwareRadioState = newState;
+                WlanSetInterface(hWlan, &guid, wlan_intf_opcode_radio_state,
+                                 sizeof(WLAN_PHY_RADIO_STATE), &phyState, nullptr);
+                WlanFreeMemory(radioState);
+            }
+        }
+        WlanFreeMemory(ifList);
+    }
+    WlanCloseHandle(hWlan, nullptr);
     m_wifiOn = !m_wifiOn;
 }
 
@@ -359,38 +377,16 @@ void FlyoutWindow::SetBrightness(int val) {
 // ── Volume ────────────────────────────────────────────────────────
 
 int FlyoutWindow::GetCurrentVolume() {
-    int vol = 50;
-    IMMDeviceEnumerator* en = nullptr;
-    IMMDevice* dev = nullptr;
-    IAudioEndpointVolume* ep = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_MMDevEnum, nullptr, CLSCTX_ALL,
-                                   IID_MMDevEnum, (void**)&en)) &&
-        SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) &&
-        SUCCEEDED(dev->Activate(IID_AudioVol, CLSCTX_ALL, nullptr, (void**)&ep))) {
-        float lvl = 0;
-        if (SUCCEEDED(ep->GetMasterVolumeLevelScalar(&lvl)))
-            vol = (int)(lvl * 100.0f);
-        ep->Release();
-    }
-    if (dev) dev->Release();
-    if (en) en->Release();
-    return vol;
+    DWORD vol = 0;
+    if (waveOutGetVolume(nullptr, &vol) == MMSYSERR_NOERROR)
+        return (int)((vol & 0xFFFF) * 100 / 0xFFFF);
+    return 50;
 }
 
 void FlyoutWindow::SetVolume(int val) {
     m_volume = (std::max)(0, (std::min)(100, val));
-    IMMDeviceEnumerator* en = nullptr;
-    IMMDevice* dev = nullptr;
-    IAudioEndpointVolume* ep = nullptr;
-    if (SUCCEEDED(CoCreateInstance(CLSID_MMDevEnum, nullptr, CLSCTX_ALL,
-                                   IID_MMDevEnum, (void**)&en)) &&
-        SUCCEEDED(en->GetDefaultAudioEndpoint(eRender, eMultimedia, &dev)) &&
-        SUCCEEDED(dev->Activate(IID_AudioVol, CLSCTX_ALL, nullptr, (void**)&ep))) {
-        ep->SetMasterVolumeLevelScalar(m_volume / 100.0f, nullptr);
-        ep->Release();
-    }
-    if (dev) dev->Release();
-    if (en) en->Release();
+    DWORD s = (DWORD)(m_volume * 0xFFFF / 100);
+    waveOutSetVolume(nullptr, MAKELONG(s, s));
     InvalidateRect(m_hwnd, nullptr, TRUE);
 }
 
