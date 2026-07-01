@@ -6,6 +6,9 @@
 #include <vector>
 #include <windows.h>
 
+namespace shell::flyout {
+class FlyoutWindow;
+}
 namespace shell::tray {
 class TrayHost;
 }
@@ -21,6 +24,7 @@ public:
     void SetWindows(const std::vector<watcher::WindowInfo>& windows);
     void SetStartMenuCallback(StartMenuCallback cb) { m_onStartClick = std::move(cb); }
     void SetTrayHost(tray::TrayHost* host) { m_trayHost = host; }
+    void SetFlyout(flyout::FlyoutWindow* flyout) { m_flyout = flyout; }
     void RepositionTrayArea();
 
 private:
@@ -37,6 +41,7 @@ private:
     int GetTrayWidth() const;
     void CheckActiveWindow();
     int GetActiveIndex() const;
+    void ShowFlyout();
     void EnsureBuffer(int w, int h);
     void DestroyBuffer();
 
@@ -45,6 +50,7 @@ private:
     std::vector<watcher::WindowInfo> m_windows;
     StartMenuCallback m_onStartClick;
     tray::TrayHost* m_trayHost = nullptr;
+    flyout::FlyoutWindow* m_flyout = nullptr;
     int m_buttonWidth = 160;
     int m_startBtnWidth = 48;
     int m_clockWidth = 100;

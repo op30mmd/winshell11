@@ -1,0 +1,9 @@
+Windows Registry Editor Version 5.00
+
+; Backup current shell
+[HKEY_LOCAL_MACHINE\SOFTWARE\CustomShell]
+"OriginalShell"="explorer.exe"
+
+; Set CustomShell as the boot shell
+[HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon]
+"Shell"="C:\\Program Files\\CustomShell\\shellhost.exe"

@@ -3,6 +3,7 @@ add_executable(shellhost
     MainWindow.h MainWindow.cpp
     HotkeyManager.h HotkeyManager.cpp
     ../power/PowerManager.h ../power/PowerManager.cpp
+    ../flyout/FlyoutWindow.h ../flyout/FlyoutWindow.cpp
 )
 
 target_link_libraries(shellhost PRIVATE
@@ -13,5 +14,12 @@ target_link_libraries(shellhost PRIVATE
     shell_tray
     shell_launcher
     PowrProf.lib
+    Mmdevapi.lib
+    Wlanapi.lib
+    Iphlpapi.lib
+    Winmm.lib
+    ole32.lib
+    oleaut32.lib
+    wbemuuid.lib
 )
 set_target_properties(shellhost PROPERTIES WIN32_EXECUTABLE TRUE)

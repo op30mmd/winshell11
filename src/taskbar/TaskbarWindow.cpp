@@ -1,4 +1,5 @@
 #include "TaskbarWindow.h"
+#include "flyout/FlyoutWindow.h"
 #include "tray/TrayHost.h"
 #include "common/Logger.h"
 #include <shellapi.h>
@@ -163,6 +164,18 @@ void TaskbarWindow::DrawStartButton(HDC hdc, int height) {
     DeleteObject(hFont);
 }
 
+void TaskbarWindow::ShowFlyout() {
+    if (!m_flyout)
+        return;
+    if (IsWindowVisible(m_flyout->GetHWND())) {
+        m_flyout->Dismiss();
+        return;
+    }
+    RECT rc;
+    GetWindowRect(m_hwnd, &rc);
+    m_flyout->Show(m_hwnd, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top);
+}
+
 void TaskbarWindow::DrawClock(HDC hdc, int width, int height) {
     RECT clockRc = {width - m_clockWidth, 0, width, height};
 
@@ -296,6 +309,9 @@ int TaskbarWindow::HitTest(POINT pt) const {
     int trayStart = rc.right - m_clockWidth - 6 - trayWidth;
     if (pt.x >= trayStart && pt.x < rc.right - m_clockWidth - 6)
         return -3;
+    // Clock area
+    if (pt.x >= rc.right - m_clockWidth - 6)
+        return -4;
     return -1;
 }
 
@@ -420,6 +436,9 @@ LRESULT CALLBACK TaskbarWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
             case WM_LBUTTONDOWN: {
                 POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
                 int hit = pThis->HitTest(pt);
+                // Dismiss flyout on any click except clock (which toggles it)
+                if (pThis->m_flyout && hit != -4)
+                    pThis->m_flyout->Dismiss();
                 if (hit == -2) {
                     if (pThis->m_onStartClick) {
                         pThis->m_onStartClick();
@@ -434,6 +453,8 @@ LRESULT CALLBACK TaskbarWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
                         int iconHit = pThis->m_trayHost->HitTest(trayPt);
                         pThis->m_trayHost->HandleClick(iconHit, false);
                     }
+                } else if (hit == -4) {
+                    pThis->ShowFlyout();
                 } else if (hit >= 0) {
                     pThis->ActivateWindow(hit);
                 }

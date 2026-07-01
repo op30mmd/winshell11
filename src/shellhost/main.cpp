@@ -4,6 +4,7 @@
 #include "common/Logger.h"
 #include "desktop/DesktopWindow.h"
 #include "desktop/IconManager.h"
+#include "flyout/FlyoutWindow.h"
 #include "taskbar/TaskbarWindow.h"
 #include "tray/TrayHost.h"
 #include "launcher/AppLauncher.h"
@@ -89,6 +90,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
     shell::tray::TrayHost tray;
     if (hTaskbar) {
         taskbar.SetTrayHost(&tray);
+    }
+
+    // Flyout control center (quick settings, power, etc.)
+    shell::flyout::FlyoutWindow flyout;
+    if (flyout.Create(hInstance)) {
+        taskbar.SetFlyout(&flyout);
     }
 
     // Window watcher (tracks running windows for taskbar buttons)
