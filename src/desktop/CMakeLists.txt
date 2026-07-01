@@ -4,4 +4,4 @@ add_library(shell_desktop STATIC
     ContextMenuHelper.cpp
 )
 
-target_link_libraries(shell_desktop PUBLIC shell_common)
+target_link_libraries(shell_desktop PUBLIC shell_common gdiplus.lib)

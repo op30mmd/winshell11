@@ -1,22 +1,15 @@
 #Requires -RunAsAdministrator
 
-$featureName = "Client-EmbeddedShellLauncher"
 $shellPath = "C:\Program Files\CustomShell\shellhost.exe"
-$namespace = "root\standardcimv2\embedded"
+$watchdogPath = "C:\Program Files\CustomShell\shellwatchdog.exe"
+$configDir = "$env:ProgramData\Microsoft\ShellLauncher"
+$configPath = "$configDir\ShellLauncherConfiguration.xml"
 $everyoneSid = "S-1-1-0"
 
-Write-Host "=== Shell Launcher v2 Setup ===" -ForegroundColor Cyan
+Write-Host "=== CustomShell Boot Setup ===" -ForegroundColor Cyan
 
-Write-Host "[1/3] Enabling Shell Launcher feature..." -ForegroundColor Cyan
-try {
-    Enable-WindowsOptionalFeature -Online -FeatureName $featureName -All -ErrorAction Stop
-    Write-Host "  Feature enabled." -ForegroundColor Green
-} catch {
-    Write-Warning "  Could not enable feature (may already be enabled): $_"
-}
-
-Write-Host "[2/3] Deploying Shell Launcher configuration file..." -ForegroundColor Cyan
-$configDir = "$env:ProgramData\Microsoft\ShellLauncher"
+# 1. Deploy Shell Launcher v2 XML configuration
+Write-Host "[1/4] Deploying Shell Launcher v2 XML config..." -ForegroundColor Cyan
 $null = New-Item -ItemType Directory -Path $configDir -Force
 $configXml = @"
 <?xml version="1.0" encoding="utf-8"?>
@@ -28,6 +21,7 @@ $configXml = @"
           <ReturnCodeAction ReturnCode="0" Action="RestartShell" />
           <ReturnCodeAction ReturnCode="1" Action="RestartShell" />
           <ReturnCodeAction ReturnCode="2" Action="RestartShell" />
+          <ReturnCodeAction ReturnCode="-1" Action="RestartShell" />
         </ReturnCodeActions>
         <DefaultAction>RestartShell</DefaultAction>
       </Shell>
@@ -41,32 +35,75 @@ $configXml = @"
   </Configurations>
 </ShellConfiguration>
 "@
-$configPath = "$configDir\ShellLauncherConfiguration.xml"
 Set-Content -Path $configPath -Value $configXml -Force
 Write-Host "  Config placed at: $configPath" -ForegroundColor Green
 
-Write-Host "[3/3] Applying Shell Launcher via WMI..." -ForegroundColor Cyan
+# 2. Enable Shell Launcher v2 feature
+Write-Host "[2/4] Enabling Shell Launcher feature..." -ForegroundColor Cyan
+$shellLauncherAvailable = $false
 try {
-    $sl = Get-WmiObject -Namespace $namespace -Class WESL_UserSetting -ErrorAction Stop
-
-    $null = $sl.Enable()
-    Write-Host "  Shell Launcher enabled." -ForegroundColor Green
-
-    $null = $sl.SetCustomShell($everyoneSid, $shellPath)
-    Write-Host "  Custom shell set for Everyone group." -ForegroundColor Green
-
-    $null = $sl.SetShellAction($everyoneSid, 0, "RestartShell")
-    $null = $sl.SetShellAction($everyoneSid, 1, "RestartShell")
-    $null = $sl.SetShellAction($everyoneSid, 2, "RestartShell")
-    $null = $sl.SetDefaultShellAction($everyoneSid, "RestartShell")
-    Write-Host "  Shell restart actions configured." -ForegroundColor Green
-
-    Write-Host "`nShell Launcher v2 configured successfully!" -ForegroundColor Green
-    Write-Host "Shell: $shellPath" -ForegroundColor Green
-    Write-Host "Target: Everyone group" -ForegroundColor Green
-    Write-Host "`nIMPORTANT: Restart your PC for changes to take effect." -ForegroundColor Yellow
+    $feature = Get-WindowsOptionalFeature -Online -FeatureName "Client-EmbeddedShellLauncher" -ErrorAction Stop
+    if ($feature.State -eq "Enabled") {
+        Write-Host "  Shell Launcher feature already enabled." -ForegroundColor Green
+        $shellLauncherAvailable = $true
+    } else {
+        Enable-WindowsOptionalFeature -Online -FeatureName "Client-EmbeddedShellLauncher" -All -NoRestart -ErrorAction Stop | Out-Null
+        Write-Host "  Shell Launcher feature enabled." -ForegroundColor Green
+        $shellLauncherAvailable = $true
+    }
 } catch {
-    Write-Warning "  WMI configuration failed: $_"
-    Write-Host "  The XML config file has been placed at: $configPath" -ForegroundColor Yellow
-    Write-Host "  You can apply it later using: Set-AssignedAccess -AppName '$shellPath'" -ForegroundColor Yellow
+    Write-Warning "  Could not enable Shell Launcher feature: $_"
 }
+
+# 3. WMI activation (optional - v2 uses XML config at boot)
+Write-Host "[3/4] Activating via WMI..." -ForegroundColor Cyan
+try {
+    $sl = Get-WmiObject -Namespace "root\standardcimv2\embedded" -Class WESL_UserSetting -ErrorAction SilentlyContinue
+    if ($sl) {
+        $null = $sl.Enable()
+        $null = $sl.SetCustomShell($everyoneSid, $shellPath)
+        $null = $sl.SetShellAction($everyoneSid, 0, "RestartShell")
+        $null = $sl.SetShellAction($everyoneSid, 1, "RestartShell")
+        $null = $sl.SetShellAction($everyoneSid, 2, "RestartShell")
+        $null = $sl.SetShellAction($everyoneSid, -1, "RestartShell")
+        $null = $sl.SetDefaultShellAction($everyoneSid, "RestartShell")
+        Write-Host "  WMI configuration applied." -ForegroundColor Green
+    } else {
+        Write-Host "  WMI class not available (v2 uses XML at boot)" -ForegroundColor Yellow
+    }
+} catch {
+    Write-Host "  WMI step skipped (v2 XML config is sufficient)" -ForegroundColor Yellow
+}
+
+# 4. Registry fallback
+Write-Host "[4/4] Setting registry fallback..." -ForegroundColor Cyan
+$winlogonPath = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon"
+try {
+    $origShell = (Get-ItemProperty -Path $winlogonPath -Name "Shell" -ErrorAction SilentlyContinue).Shell
+    if (-not $origShell -or $origShell -eq "") {
+        $origShell = "explorer.exe"
+    }
+    $backupPath = "HKLM:\SOFTWARE\CustomShell"
+    $null = New-Item -ItemType Directory -Path $backupPath -Force
+    Set-ItemProperty -Path $backupPath -Name "OriginalShell" -Value $origShell -Force
+    Write-Host "  Original shell backed up: $origShell" -ForegroundColor Green
+
+    Set-ItemProperty -Path $winlogonPath -Name "Shell" -Value $shellPath -Force
+    Write-Host "  Shell set in registry: $shellPath" -ForegroundColor Green
+} catch {
+    Write-Warning "  Registry fallback failed: $_"
+}
+
+# Summary
+Write-Host ""
+if ($shellLauncherAvailable) {
+    Write-Host "Shell Launcher v2: AVAILABLE" -ForegroundColor Green
+    Write-Host "  Feature enabled, XML config deployed." -ForegroundColor Green
+} else {
+    Write-Host "Shell Launcher v2: NOT AVAILABLE" -ForegroundColor Yellow
+    Write-Host "  Registry fallback will launch the shell." -ForegroundColor Yellow
+}
+Write-Host "Registry fallback: SET" -ForegroundColor Green
+Write-Host ""
+Write-Host "IMPORTANT: Restart your PC for changes to take effect." -ForegroundColor Yellow
+Write-Host "To restore the original shell, run: Restore-Shell.ps1" -ForegroundColor Cyan

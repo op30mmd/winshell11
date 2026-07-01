@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ShellConfiguration xmlns="http://schemas.microsoft.com/ShellLauncher/2018/Configuration">
+<ShellConfiguration xmlns="http://schemas.microsoft.com/ShellLauncher/2019/Configuration">
   <Profiles>
     <Profile ID="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
       <Shell Shell="C:\Program Files\CustomShell\shellhost.exe">
         <ReturnCodeActions>
           <ReturnCodeAction ReturnCode="0" Action="RestartShell" />
-          <ReturnCodeAction ReturnCode="-1" Action="RestartShell" />
           <ReturnCodeAction ReturnCode="1" Action="RestartShell" />
+          <ReturnCodeAction ReturnCode="2" Action="RestartShell" />
+          <ReturnCodeAction ReturnCode="-1" Action="RestartShell" />
         </ReturnCodeActions>
         <DefaultAction>RestartShell</DefaultAction>
       </Shell>
