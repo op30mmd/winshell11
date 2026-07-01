@@ -1,0 +1,161 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: Release
+  CMAKE_GENERATOR: Ninja
+
+jobs:
+  format-check:
+    name: Format check (clang-format)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run clang-format --dry-run
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Include *.cpp,*.h,*.hpp -Path src | ForEach-Object { $_.FullName }
+          if ($files.Count -eq 0) { Write-Host "No source files found yet, skipping."; exit 0 }
+          clang-format --dry-run --Werror $files
+
+  build:
+    name: Build (${{ matrix.config }}, ${{ matrix.arch }})
+    needs: format-check
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [ Release, Debug ]
+        arch: [ x64 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.arch }}
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure (CMake)
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=${{ matrix.config }}
+          -DCMAKE_C_COMPILER=cl
+          -DCMAKE_CXX_COMPILER=cl
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config ${{ matrix.config }} --parallel
+
+      - name: Run unit tests
+        shell: pwsh
+        run: ctest --test-dir build --output-on-failure -C ${{ matrix.config }}
+
+      - name: Upload build artifacts
+        if: matrix.config == 'Release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: customshell-${{ matrix.arch }}-${{ matrix.config }}
+          path: |
+            build/src/shellhost/shellhost.exe
+            build/src/watchdog/shellwatchdog.exe
+            config/shell.config.json.sample
+          if-no-files-found: error
+          retention-days: 14
+
+  static-analysis:
+    name: Static analysis (MSVC /analyze)
+    needs: format-check
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure with /analyze
+        shell: pwsh
+        run: >
+          cmake -S . -B build-analyze -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_FLAGS="/analyze /WX"
+
+      - name: Build with analysis
+        shell: pwsh
+        run: cmake --build build-analyze --parallel
+
+  auto-tag:
+    name: Auto-generate version tag
+    needs: [ build, static-analysis ]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tag.outputs.new_tag }}
+    steps:
+      - name: Checkout (full history for version calculation)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump version and push tag
+        id: tag
+        uses: anothrNick/github-tag-action@1.71.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
+          RELEASE_BRANCHES: main
+
+  package-release:
+    name: Package installer & publish release
+    needs: auto-tag
+    if: needs.auto-tag.outputs.new_tag != ''
+    runs-on: windows-latest
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.auto-tag.outputs.new_tag }}
+
+      - name: Download Release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: customshell-x64-Release
+          path: dist
+
+      - name: Build installer (Inno Setup)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          iscc installer\CustomShell.iss /O"dist-installer"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.auto-tag.outputs.new_tag }}
+          files: dist-installer\*.exe
+          generate_release_notes: true
