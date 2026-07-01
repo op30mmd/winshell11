@@ -1,0 +1,29 @@
+{
+  "theme": {
+    "accentColor": "#2D7DFF",
+    "taskbarHeight": 40,
+    "iconSize": 48
+  },
+  "desktop": {
+    "showIcons": true,
+    "gridSpacing": 96,
+    "wallpaperPath": "C:\\ProgramData\\CustomShell\\wallpaper.jpg"
+  },
+  "taskbar": {
+    "position": "bottom",
+    "showClock": true,
+    "multiMonitor": false
+  },
+  "launcher": {
+    "pinnedApps": [
+      "C:\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\Accessories\\Notepad.lnk"
+    ]
+  },
+  "hotkeys": {
+    "winKeyOpensLauncher": true
+  },
+  "watchdog": {
+    "restartOnCrash": true,
+    "maxRestartsPerMinute": 5
+  }
+}
