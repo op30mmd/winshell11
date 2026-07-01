@@ -15,6 +15,7 @@ public:
     void EnumerateApps();
     const std::vector<AppItem>& GetApps() const { return m_apps; }
     void Launch(const AppItem& item);
+    bool ShowMenu(HWND hParent);
 
 private:
     std::vector<AppItem> m_apps;

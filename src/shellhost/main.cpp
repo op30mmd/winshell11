@@ -34,6 +34,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
         CoUninitialize();
         return 1;
     }
+    HWND hMain = mainWnd.GetHWND();
 
     // Desktop (full-screen background)
     shell::desktop::DesktopWindow desktop;
@@ -46,31 +47,40 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPSTR /*lpC
     if (!taskbar.Create(hInstance, config.taskbar)) {
         LOG_WARNING("Failed to create taskbar window");
     }
+    HWND hTaskbar = taskbar.GetHWND();
 
     // Tray notification area (child of taskbar)
     shell::tray::TrayHost tray;
-    if (HWND hTaskbar = taskbar.GetHWND()) {
+    if (hTaskbar) {
         tray.Initialize(hTaskbar);
     }
 
-    // Window watcher (tracks running windows for taskbar)
+    // Window watcher (tracks running windows for taskbar buttons)
     shell::watcher::WindowWatcher watcher;
-    watcher.Start([]() {
-        LOG_DEBUG("Window list updated");
+    watcher.Start([&taskbar, &watcher]() {
+        taskbar.SetWindows(watcher.GetWindows());
     });
 
-    // Launcher (app enumeration / launch)
+    // Launcher (enumerate Start Menu apps)
     shell::launcher::AppLauncher launcher;
     launcher.EnumerateApps();
+    if (hTaskbar) {
+        taskbar.SetStartMenuCallback([&launcher, hTaskbar]() {
+            launcher.ShowMenu(hTaskbar);
+        });
+    }
 
     // Hotkeys
     shell::host::HotkeyManager hotkeys;
-    hotkeys.Initialize(mainWnd.GetHWND());
+    hotkeys.Initialize(hMain);
     mainWnd.SetHotkeyHandler([&](int id) { hotkeys.HandleMessage(id); });
 
     hotkeys.Register(1, MOD_WIN, 'L', []() { shell::power::PowerManager::Lock(); });
     hotkeys.Register(2, MOD_WIN, 'R', []() {
         ShellExecuteW(nullptr, L"open", L"explorer.exe", nullptr, nullptr, SW_SHOWNORMAL);
+    });
+    hotkeys.Register(3, MOD_WIN, VK_RETURN, [hTaskbar, &launcher]() {
+        launcher.ShowMenu(hTaskbar);
     });
 
     LOG_INFO("Shell host initialized.");
