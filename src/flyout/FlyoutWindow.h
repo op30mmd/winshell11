@@ -24,6 +24,7 @@ private:
     std::wstring GetWiFiStatus();
     std::wstring GetBluetoothStatus();
     bool HasBrightnessControl();
+    bool HasBluetoothHardware();
     int GetCurrentBrightness();
     int GetCurrentVolume();
     std::wstring GetNetworkInfo();
@@ -39,6 +40,7 @@ private:
     bool m_wifiOn = true;
     bool m_btOn = false;
     bool m_hasBrightness = false;
+    bool m_hasBluetooth = false;
 
     bool m_draggingVolume = false;
     bool m_draggingBrightness = false;

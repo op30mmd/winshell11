@@ -4,9 +4,12 @@
 
 #include <iphlpapi.h>
 #include <mmsystem.h>
+#include <setupapi.h>
+#include <devguid.h>
 #include <wlanapi.h>
 #include <windowsx.h>
 #include <wbemidl.h>
+#include <shobjidl.h>
 #include <vector>
 
 #pragma comment(lib, "ole32.lib")
@@ -15,6 +18,8 @@
 #pragma comment(lib, "Wlanapi.lib")
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Winmm.lib")
+#pragma comment(lib, "setupapi.lib")
+#pragma comment(lib, "Shell32.lib")
 
 namespace shell::flyout {
 
@@ -24,6 +29,7 @@ static constexpr int TG_W = 104;
 static constexpr int TG_H = 68;
 static constexpr int SL_H = 30;
 static constexpr int BTN_H = 36;
+static constexpr int SET_H = 44;
 static constexpr int SEP = 1;
 
 static constexpr COLORREF BG = RGB(28, 28, 34);
@@ -115,22 +121,20 @@ static bool WmiExec(const std::wstring& query, Fn cb) {
 bool FlyoutWindow::Create(HINSTANCE hInstance) {
     const wchar_t CLASS[] = L"ShellFlyoutClass";
     WNDCLASSW wc = {};
-    wc.style = CS_DBLCLKS;
+    wc.style = CS_DBLCLKS | CS_DROPSHADOW;
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS;
-    wc.hbrBackground = nullptr;
+    wc.hbrBackground = CreateSolidBrush(RGB(28, 28, 34));
     RegisterClassW(&wc);
 
     m_hwnd = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
+        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
         CLASS, L"Quick Settings", WS_POPUP,
         0, 0, m_width, m_height,
         nullptr, nullptr, hInstance, this);
 
-    if (!m_hwnd) return false;
-    SetLayeredWindowAttributes(m_hwnd, 0, 235, LWA_ALPHA);
-    return true;
+    return m_hwnd != nullptr;
 }
 
 void FlyoutWindow::Show(HWND parent, int /*tx*/, int /*ty*/, int /*tw*/, int /*th*/) {
@@ -139,13 +143,19 @@ void FlyoutWindow::Show(HWND parent, int /*tx*/, int /*ty*/, int /*tw*/, int /*t
     m_volume = GetCurrentVolume();
     m_hasBrightness = HasBrightnessControl();
     m_brightness = m_hasBrightness ? GetCurrentBrightness() : -1;
+    m_hasBluetooth = HasBluetoothHardware();
     m_wifiOn = true; // default on
 
     // Recalculate height
-    int h = PAD + TG_H + 8 + SEP + 8;
-    if (m_hasBrightness) h += 16 + SL_H + 6;
-    h += 16 + SL_H + 8 + SEP + 8;
-    h += 48 + 8 + SEP + 8;
+    int h = PAD;
+    h += TG_H + 8;
+    h += SEP + 8;
+    if (m_hasBrightness) h += 20 + SL_H + 8;
+    h += 20 + SL_H + 10;
+    h += SEP + 8;
+    h += 52 + 8;
+    h += SEP + 8;
+    h += SET_H + 8;
     h += BTN_H + PAD;
     m_height = h;
 
@@ -175,6 +185,7 @@ enum Sect {
     S_WIFI, S_BT,
     S_BRIGHT, S_VOL,
     S_NET,
+    S_SETTINGS,
     S_LOCK, S_SLEEP, S_RESTART, S_SHUTDOWN,
 };
 
@@ -182,26 +193,32 @@ int FlyoutWindow::HitTestSection(POINT pt) const {
     int y = PAD;
     // Toggles
     if (pt.y >= y && pt.y < y + TG_H) {
-        if (pt.x >= PAD && pt.x < PAD + TG_W) return S_WIFI;
-        if (pt.x >= PAD + TG_W + 8 && pt.x < PAD + TG_W * 2 + 8) return S_BT;
+        int tw = m_hasBluetooth ? TG_W : (TG_W * 2 + 8);
+        int cx = m_hasBluetooth ? PAD : (m_width - tw) / 2;
+        if (pt.x >= cx && pt.x < cx + tw) return S_WIFI;
+        if (m_hasBluetooth && pt.x >= PAD + TG_W + 8 && pt.x < PAD + TG_W * 2 + 8) return S_BT;
         return S_NONE;
     }
     y += TG_H + 8 + SEP + 8;
 
     // Brightness
     if (m_hasBrightness) {
-        y += 16;
+        y += 20;
         if (pt.y >= y && pt.y < y + SL_H) return S_BRIGHT;
-        y += SL_H + 6;
+        y += SL_H + 8;
     }
     // Volume
-    y += 16;
+    y += 20;
     if (pt.y >= y && pt.y < y + SL_H) return S_VOL;
-    y += SL_H + 8 + SEP + 8;
+    y += SL_H + 10 + SEP + 8;
 
     // Network
-    if (pt.y >= y && pt.y < y + 48) return S_NET;
-    y += 48 + 8 + SEP + 8;
+    if (pt.y >= y && pt.y < y + 52) return S_NET;
+    y += 52 + 8 + SEP + 8;
+
+    // Settings
+    if (pt.y >= y && pt.y < y + SET_H) return S_SETTINGS;
+    y += SET_H + 8;
 
     // Power row
     int pw = (m_width - PAD * 2 - 8) / 4;
@@ -227,6 +244,36 @@ void FlyoutWindow::OnClick(int sect, HWND hwnd) {
     switch (sect) {
         case S_WIFI:   ToggleWiFi(); break;
         case S_BT:     ToggleBluetooth(); break;
+        case S_SETTINGS: {
+            IApplicationActivationManager* aam = nullptr;
+            HRESULT hr = CoCreateInstance(CLSID_ApplicationActivationManager, nullptr,
+                                          CLSCTX_LOCAL_SERVER, IID_IApplicationActivationManager,
+                                          (void**)&aam);
+            if (FAILED(hr) || !aam) {
+                // UWP activation needs the Shell App Runtime. Start the
+                // minimal broker then retry.
+                wchar_t broker[] = L"C:\\Windows\\System32\\ShellAppRuntime.exe";
+                STARTUPINFOW si = { sizeof(si) };
+                PROCESS_INFORMATION pi;
+                if (CreateProcessW(broker, nullptr, nullptr, nullptr, FALSE,
+                                   0, nullptr, nullptr, &si, &pi)) {
+                    CloseHandle(pi.hThread);
+                    WaitForInputIdle(pi.hProcess, 8000);
+                    CloseHandle(pi.hProcess);
+                }
+                hr = CoCreateInstance(CLSID_ApplicationActivationManager, nullptr,
+                                      CLSCTX_LOCAL_SERVER, IID_IApplicationActivationManager,
+                                      (void**)&aam);
+            }
+            if (SUCCEEDED(hr) && aam) {
+                DWORD pid = 0;
+                aam->ActivateApplication(
+                    L"windows.immersivecontrolpanel_8wekyb3d8bbwe!microsoft.windows.immersivecontrolpanel",
+                    nullptr, AO_NONE, &pid);
+                aam->Release();
+            }
+            Dismiss(); break;
+        }
         case S_LOCK:   shell::power::PowerManager::Lock(); Dismiss(); break;
         case S_SLEEP:  shell::power::PowerManager::Sleep(); break;
         case S_RESTART: shell::power::PowerManager::Restart(); break;
@@ -301,17 +348,20 @@ void FlyoutWindow::ToggleWiFi() {
 
 // ── Bluetooth ─────────────────────────────────────────────────────
 
+bool FlyoutWindow::HasBluetoothHardware() {
+    HDEVINFO devInfo = SetupDiGetClassDevs(&GUID_DEVCLASS_BLUETOOTH, nullptr, nullptr,
+                                           DIGCF_PRESENT);
+    if (devInfo == INVALID_HANDLE_VALUE)
+        return false;
+    SP_DEVINFO_DATA devData = { sizeof(SP_DEVINFO_DATA) };
+    bool found = SetupDiEnumDeviceInfo(devInfo, 0, &devData) == TRUE;
+    SetupDiDestroyDeviceInfoList(devInfo);
+    return found;
+}
+
 std::wstring FlyoutWindow::GetBluetoothStatus() {
-    // Quick check via registry for Bluetooth radios
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters",
-                      0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        RegCloseKey(hKey);
-        m_btOn = true;
-        return L"On";
-    }
-    m_btOn = false;
-    return L"Off";
+    m_btOn = true;
+    return L"On";
 }
 
 void FlyoutWindow::ToggleBluetooth() {
@@ -423,14 +473,18 @@ void FlyoutWindow::OnPaint(HDC hdc) {
 
     // ── Quick toggles ─────────────────────────────────────────────
     // Wi-Fi
-    FillCol(hdc, PAD, y, TG_W, TG_H, m_wifiOn ? ACCENT : TG_BG);
-    DrawGlyph(hdc, PAD, y + 6, TG_W, 30, 0xE701, TEXT_ON, 26);
-    DrawLabel(hdc, PAD, y + TG_H - 22, TG_W, 18, L"Wi-Fi", TEXT_ON, 12, DT_CENTER);
+    int tw = m_hasBluetooth ? TG_W : (TG_W * 2 + 8);
+    int cx = m_hasBluetooth ? PAD : (m_width - tw) / 2;
+    FillCol(hdc, cx, y, tw, TG_H, m_wifiOn ? ACCENT : TG_BG);
+    DrawGlyph(hdc, cx, y + 8, tw, 34, 0xE701, TEXT_ON, 32);
+    DrawLabel(hdc, cx, y + TG_H - 26, tw, 22, L"Wi-Fi", TEXT_ON, 15, DT_CENTER);
     // Bluetooth
-    int bx = PAD + TG_W + 8;
-    FillCol(hdc, bx, y, TG_W, TG_H, m_btOn ? ACCENT : TG_BG);
-    DrawGlyph(hdc, bx, y + 6, TG_W, 30, 0xE702, TEXT_ON, 26);
-    DrawLabel(hdc, bx, y + TG_H - 22, TG_W, 18, L"Bluetooth", TEXT_ON, 12, DT_CENTER);
+    if (m_hasBluetooth) {
+        int bx = PAD + TG_W + 8;
+        FillCol(hdc, bx, y, TG_W, TG_H, m_btOn ? ACCENT : TG_BG);
+        DrawGlyph(hdc, bx, y + 8, TG_W, 34, 0xE702, TEXT_ON, 32);
+        DrawLabel(hdc, bx, y + TG_H - 26, TG_W, 22, L"Bluetooth", TEXT_ON, 15, DT_CENTER);
+    }
     y += TG_H + 8;
 
     FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
@@ -438,29 +492,29 @@ void FlyoutWindow::OnPaint(HDC hdc) {
 
     // ── Brightness ────────────────────────────────────────────────
     if (m_hasBrightness) {
-        DrawLabel(hdc, PAD, y, 120, 16, L"Brightness", TEXT_DIM, 12);
-        y += 16;
+        DrawLabel(hdc, PAD, y, 120, 20, L"Brightness", TEXT_DIM, 14);
+        y += 20;
         int sw = m_width - PAD * 2;
         FillCol(hdc, PAD, y, sw, SL_H, SL_BG);
         int fw = sw * m_brightness / 100;
         FillCol(hdc, PAD, y, fw, SL_H, SL_FILL);
-        DrawGlyph(hdc, PAD + 4, y, SL_H, SL_H, 0xE706, TEXT_ON, 16);
+        DrawGlyph(hdc, PAD + 6, y, SL_H, SL_H, 0xE706, TEXT_ON, 20);
         std::wstring bs = std::to_wstring(m_brightness) + L"%";
-        DrawLabel(hdc, PAD + sw - 48, y, 44, SL_H, bs, TEXT_ON, 12, DT_RIGHT | DT_VCENTER);
-        y += SL_H + 6;
+        DrawLabel(hdc, PAD + sw - 52, y, 48, SL_H, bs, TEXT_ON, 14, DT_RIGHT | DT_VCENTER);
+        y += SL_H + 8;
     }
 
     // ── Volume ────────────────────────────────────────────────────
-    DrawLabel(hdc, PAD, y, 120, 16, L"Volume", TEXT_DIM, 12);
-    y += 16;
+    DrawLabel(hdc, PAD, y, 120, 20, L"Volume", TEXT_DIM, 14);
+    y += 20;
     {   int sw = m_width - PAD * 2;
         FillCol(hdc, PAD, y, sw, SL_H, SL_BG);
         int fw = sw * m_volume / 100;
         FillCol(hdc, PAD, y, fw, SL_H, SL_FILL);
-        DrawGlyph(hdc, PAD + 4, y, SL_H, SL_H, 0xE995, TEXT_ON, 16);
+        DrawGlyph(hdc, PAD + 6, y, SL_H, SL_H, 0xE995, TEXT_ON, 20);
         std::wstring vs = std::to_wstring(m_volume) + L"%";
-        DrawLabel(hdc, PAD + sw - 48, y, 44, SL_H, vs, TEXT_ON, 12, DT_RIGHT | DT_VCENTER);
-        y += SL_H + 8;
+        DrawLabel(hdc, PAD + sw - 52, y, 48, SL_H, vs, TEXT_ON, 14, DT_RIGHT | DT_VCENTER);
+        y += SL_H + 10;
     }
 
     FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
@@ -468,11 +522,18 @@ void FlyoutWindow::OnPaint(HDC hdc) {
 
     // ── Network info ──────────────────────────────────────────────
     std::wstring ni = GetNetworkInfo();
-    DrawLabel(hdc, PAD, y, m_width - PAD * 2, 48, ni, TEXT_DIM, 11, DT_LEFT | DT_WORDBREAK);
-    y += 48 + 8;
+    DrawLabel(hdc, PAD, y, m_width - PAD * 2, 52, ni, TEXT_DIM, 13, DT_LEFT | DT_WORDBREAK);
+    y += 52 + 8;
 
     FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
     y += SEP + 8;
+
+    // ── Settings button ───────────────────────────────────────────
+    int sw = m_width - PAD * 2;
+    FillCol(hdc, PAD, y, sw, SET_H, CARD);
+    DrawGlyph(hdc, PAD, y, SET_H, SET_H, 0xE713, TEXT_ON, 22);
+    DrawLabel(hdc, PAD + SET_H, y, sw - SET_H, SET_H, L"Settings", TEXT_ON, 15, DT_LEFT | DT_VCENTER);
+    y += SET_H + 8;
 
     // ── Power buttons ─────────────────────────────────────────────
     static const wchar_t* icons[] = {L"\uE72E", L"\uE73A", L"\uE777", L"\uE7E8"};
@@ -481,8 +542,8 @@ void FlyoutWindow::OnPaint(HDC hdc) {
     for (int i = 0; i < 4; i++) {
         int px = PAD + i * (pw + 2);
         FillCol(hdc, px, y, pw, BTN_H, CARD);
-        DrawGlyph(hdc, px, y + 2, pw, 20, icons[i][0], TEXT_ON, 18);
-        DrawLabel(hdc, px, y + 20, pw, 14, labels[i], TEXT_DIM, 10, DT_CENTER);
+        DrawGlyph(hdc, px, y + 4, pw, 22, icons[i][0], TEXT_ON, 22);
+        DrawLabel(hdc, px, y + 24, pw, 14, labels[i], TEXT_DIM, 12, DT_CENTER);
     }
 }
 
