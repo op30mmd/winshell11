@@ -5,9 +5,19 @@
 
 namespace shell::launcher {
 
+enum class AppType : int {
+    Application  = 0,
+    ControlPanel = 1,
+    SystemTool   = 2,
+    WebLink      = 3,
+    Unknown      = 4
+};
+
 struct AppItem {
     std::wstring name;
-    std::wstring path;
+    std::wstring path;      // .lnk path
+    std::wstring target;    // resolved shortcut target
+    int type;               // AppType as int
 };
 
 class AppLauncher {

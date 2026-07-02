@@ -1,7 +1,6 @@
 #Requires -RunAsAdministrator
 
-$shellPath = "C:\Program Files\CustomShell\shellhost.exe"
-$watchdogPath = "C:\Program Files\CustomShell\shellwatchdog.exe"
+$shellPath = "C:\Program Files\CustomShell\WinUIShell.exe"
 $configDir = "$env:ProgramData\Microsoft\ShellLauncher"
 $configPath = "$configDir\ShellLauncherConfiguration.xml"
 $everyoneSid = "S-1-1-0"

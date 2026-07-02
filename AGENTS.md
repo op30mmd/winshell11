@@ -1,159 +1,184 @@
 # AGENTS.md: CustomShell — Win32 Desktop Shell Project
 
 ## 🤖 Agent Persona & Objective
-**Role:** You are an AI software engineering agent assisting with a Win32-based codebase, specifically focused on custom desktop shell development.
-**Objective:** Your goal is to analyze, debug, and implement Win32 UI features and shell components while **strictly adhering to the project's existing structure, abstractions, and coding conventions.**
-**Mindset:** Win32 is highly stateful and flexible. Every project handles window creation, message routing, and resource management differently. Desktop shells have unique requirements regarding Z-order, workspace management, and global system hooks. Analyze the project's unique architecture before suggesting fixes.
+**Role:** You are an AI software engineering agent assisting with a Win32/WinUI 3 hybrid codebase focused on custom desktop shell development.
+**Objective:** Analyze, debug, and implement shell features while adhering to the project's structure, abstractions, and conventions.
+**Mindset:** Desktop shells have unique requirements for Z-order, workspace management, and system integration. The frontend is WinUI 3 (C#) and the backend is C++ (`shell_backend.dll`). Analyze the project's architecture before making changes.
 
 ---
 
 ## 📂 1. Project Architecture Overview
 
-### Component Layout (single process, single thread)
-All shell components run in-process on a single UI thread. The shellhost executable creates them sequentially:
+### Component Layout
+The shell is split into two parts:
 
+**WinUI 3 Frontend (`src/WinUIShell/`)**
+- `App.xaml.cs` — Application entry. Creates 4 windows: Desktop, StartMenu (popup), Flyout (popup), Taskbar.
+- `StartMenuControl.xaml/cs` — WinUI UserControl for the start menu (app list with icons, search). Uses `SB_Launcher_Enumerate`.
+- `FlyoutControl.xaml/cs` — Quick settings panel (WiFi/BT toggles, volume, brightness, power buttons). Reads backend state.
+- `IconHelper.cs` — Converts HICON → `SoftwareBitmapSource` via `System.Drawing` + `Windows.Graphics.Imaging`.
+- `NativeMethods.cs` — All P/Invoke declarations for shell_backend.dll and Win32 APIs.
+- `AppItemModel.cs` — Data model for app items with `Name`, `Path`, `Target`, `Type` (enum), `Icon`.
+
+**C++ Backend (`src/backend/`, `src/common/`, `src/launcher/`, `src/desktop/`, etc.)**
+- `exports.h/cpp` — Exported `extern "C"` functions called from C# via `[DllImport]`.
+- `AppLauncher` — Enumerates Start Menu shortcuts, resolves `.lnk` targets via `IShellLink`, categorizes apps (Application/ControlPanel/SystemTool/WebLink).
+- `IconManager` — Enumerates desktop icons via `SHGetDesktopFolder`, computes grid positions.
+- `shell_backend.dll` — Single DLL loaded by WinUIShell.exe.
+
+### Architecture Diagram
 ```
-main.cpp::WinMain
-  ├── MainWindow          (message-only HWND_MESSAGE, handles WM_HOTKEY)
-  ├── DesktopWindow       (full-screen WS_POPUP, HWND_BOTTOM, wallpaper + icons)
-  ├── TaskbarWindow       (AppBar at bottom, HWND_TOPMOST, window list + clock + tray)
-  ├── TrayHost            (notification area icon manager, no HWND)
-  ├── FlyoutWindow        (popup control center, quick settings)
-  ├── WindowWatcher       (WinEvent hooks for tracking open windows)
-  ├── AppLauncher         (Start Menu enumeration + popup)
-  └── HotkeyManager       (registered via MainWindow)
+WinUIShell.exe (C#, WinUI 3)
+  ├── Desktop Window (full-screen, wallpaper + icons via Canvas)
+  ├── Start Menu (popup, app list with icons + search)
+  ├── Flyout (popup, quick settings with real backend state)
+  └── Taskbar (AppBar at bottom)
+        └── shell_backend.dll (C++ P/Invoke)
+              ├── AppLauncher (Start Menu .lnk scanner)
+              ├── IconManager (desktop item enumeration)
+              ├── PowerManager (lock/sleep/restart/shutdown)
+              ├── Volume/Brightness (waveOut/WMI)
+              ├── WiFi (WlanAPI) + Bluetooth (BluetoothAPI)
+              └── Network (iphlpapi)
 ```
 
-### Custom UI Framework (`src/ui/`)
-- **`Widget`** — abstract base class with bounds, parent/child tree, `Paint()`/`Layout()`/`HitTest()`.
-- **`UiHost`** — bridges a Win32 `HWND` to a widget tree; owns the `Theme`, double-buffer (`EnsureBuffer`), and message routing (`HandleMessage`).
-- **`Renderer`** — GDI drawing helper (FillRect, DrawString, DrawBorder, etc.) over an HDC.
-- **`Theme`** — shared visual properties (colors, font, corner radius).
-- **Double-buffering:** `UiHost::OnPaint()` paints to an offscreen buffer (`CreateCompatibleDC` + `CreateCompatibleBitmap`), then `BitBlt`s to the window.
+---
 
-### Desktop Module (`src/desktop/`)
-- **`DesktopWindow`** — Win32 window with `WS_POPUP | WS_VISIBLE | WS_EX_TOOLWINDOW`, full-screen at `HWND_BOTTOM`. Routes messages through `UiHost`.
-- **`DesktopPanel`** — root widget; renders wallpaper (GDI+ `Image`) or solid color `RGB(30,30,36)`, then paints icon children.
-- **`DesktopIconWidget`** — renders a 48×48 icon via `DrawIconEx` + text label via `DrawTextW`.
-- **`IconManager`** — enumerates desktop items via `SHGetDesktopFolder` → `EnumObjects`, computes grid positions.
+## 📐 2. Build System & Toolchain
 
-### Taskbar Module (`src/taskbar/`)
-- **`TaskbarWindow`** — AppBar at bottom via `SHAppBarMessage(ABM_NEW/ABM_SETPOS)`, `WS_EX_TOPMOST | WS_EX_TOOLWINDOW`.
-- **`TaskbarPanel`** — horizontal strip with Start button, task buttons (window list), tray, clock.
+### C++ Backend
+- **Build:** `cmake -B build && cmake --build build --config Release`
+- **Compiler:** MSVC with `/W4 /WX /analyze`
+- **Output:** `build/src/backend/Release/shell_backend.dll`
+- **After build, copy DLL:** `Copy-Item build/src/backend/Release/shell_backend.dll src/WinUIShell/bin/Debug/net8.0-windows10.0.19041.0/win-x64/shell_backend.dll -Force`
+
+### WinUI 3 Frontend
+- **Build:** `dotnet build src/WinUIShell/WinUIShell.csproj`
+- **Framework:** `net8.0-windows10.0.19041.0`, Windows App SDK 1.6
+- **Self-contained:** `WindowsAppSDKSelfContained=true` with `RuntimeIdentifier=win-x64`
+- **NuGet deps:** `Microsoft.WindowsAppSDK 1.6.240923002`, `System.Drawing.Common 8.0.0`
+
+### CI
+- `.github/workflows/ci.yml` — GitHub Actions: CMake → C++ build → dotnet restore → dotnet build → Inno Setup (optional) → artifact upload.
+
+### Known XAML Compiler Bug
+The EXE `XamlCompiler.exe` silently exits with code 1 on XAML errors (WinAppSDK 1.6 bug). To see real errors:
+```powershell
+& "C:\Program Files\Microsoft Visual Studio\2022\Community\Msbuild\Current\Bin\MSBuild.exe" WinUIShell.csproj /p:UseXamlCompilerExecutable=false
+```
 
 ---
 
-## 📐 2. General Rules of Engagement
-1.  **Paint system is fragile.** Never assume `InvalidateRect` triggers `WM_PAINT` — the thread runs a timer (`kAnimTimerId` + Taskbar 1-second timer) that can prevent `GetMessage` from synthesizing `WM_PAINT`. Always use `RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE)` to force a synchronous paint.
-2.  **Stay within the existing architecture:** Do not introduce alternative frameworks or new dependencies unless explicitly instructed. Fix bugs using the tools currently available in the project.
-3.  **Match the Coding Style:** Adapt your output to match the surrounding code exactly (C++20, namespaces `shell::*`, `std::wstring` for Win32 strings, `COLORREF` not `Gdiplus::Color` for GDI).
-4.  **Use Project Error Handling:** Use the project's existing macros (`LOG_INFO`, `LOG_WARNING`, `LOG_ERROR`) which now support printf-style format strings and `OutputDebugStringA`.
-5.  **Build system:** CMake + MSVC with `/W4 /WX /analyze`. Build from repo root: `cmake --build build --config Release`.
+## 🖥️ 3. Shell Design Rules
+
+### A. App Enumeration & Categorization
+- Apps are enumerated from `FOLDERID_Programs` + `FOLDERID_CommonPrograms` by scanning `.lnk` files.
+- Each `.lnk` is resolved via `IShellLink::GetIDList` → `SHGetPathFromIDListW` for proper path expansion (environment variables like `%windir%` are expanded).
+- Apps are categorized via `CategorizeTarget()`:
+  - `.cpl` → `ControlPanel`
+  - `.url` → `WebLink`
+  - `.msc` → `SystemTool`
+  - `.exe` → checked against known system tool list
+  - Name-based fallback for Control Panel, Settings, Device Manager
+- Non-app items are filtered: uninstallers, setup helpers, context menu shortcuts (`Add to archive...`, `Extract here...`), documentation files (`readme`, `faq`, `license`, `copyright`, `.txt`, `.htm`, `.chm`).
+
+### B. SB_AppItem Struct
+```cpp
+typedef struct {
+    wchar_t name[256];
+    wchar_t path[1024];    // .lnk path
+    wchar_t target[1024];  // resolved target (expanded)
+    int type;              // 0=App, 1=ControlPanel, 2=SystemTool, 3=WebLink, 4=Unknown
+} SB_AppItem;
+```
+Must match C# `[StructLayout]` exactly. When adding fields, update both sides.
+
+### C. Icon Loading
+- Use `IconHelper.FromPathAsync(path)` for converting shell icons to `SoftwareBitmapSource`.
+- The function tries `SHGetFileInfoW` WITHOUT `SHGFI_USEFILEATTRIBUTES` first (resolves `.lnk` targets).
+- Falls back to `SHGFI_USEFILEATTRIBUTES` for virtual/CLSID paths.
+- For Start Menu, use the resolved `target` path (not the `.lnk` path) for icon extraction.
+- NOTE: `AppItemModel` does NOT implement `INotifyPropertyChanged`. Icons must be set before adding items to the `ObservableCollection`.
+
+### D. Flyout / Quick Panel
+- Reads real backend state on load:
+  - `SB_WiFi_IsEnabled()` / `SB_Bluetooth_IsEnabled()` for toggle state
+  - `SB_Volume_Get()` / `SB_Brightness_Get()` for sliders
+  - `SB_Brightness_HasControl()` for brightness visibility
+  - `SB_Network_GetInfo()` for network info
+- Toggle buttons show active (blue tint) / inactive state via background color change.
+
+### E. WiFi & Bluetooth Backend
+- **WiFi state:** `WlanQueryInterface` with `wlan_intf_opcode_current_operation_mode` — non-zero = enabled.
+- **Bluetooth state:** `BluetoothFindFirstRadio` to detect hardware, then registry `HKLM\...\BTHPORT\Parameters\IsEnabled` for power state.
+- Toggle functions: `WlanSetInterface` (WiFi), `ShellExecute ms-settings:bluetooth` (BT).
+
+### F. Window Styles & Z-Order (C# side)
+- **Desktop:** `WS_POPUP | WS_VISIBLE`, `WS_EX_TOOLWINDOW`. Set via `SetWindowLongW`. Positioned at `HWND_BOTTOM`.
+- **Taskbar:** `WS_POPUP | WS_VISIBLE`, `WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE`. AppBar registered via `SHAppBarMessage`.
+- **Popups (Start Menu, Flyout):** `WS_EX_NOACTIVATE` to avoid focus steal. Positioned relative to taskbar.
+
+### G. AppBar Registration
+```csharp
+var abd = new APPBARDATA();
+abd.cbSize = Marshal.SizeOf<APPBARDATA>();
+abd.hWnd = hwnd;
+abd.uEdge = NativeMethods.ABE_BOTTOM;
+NativeMethods.SHAppBarMessage(NativeMethods.ABM_NEW, ref abd);
+// Then ABM_SETPOS, etc.
+```
 
 ---
 
-## 🖥️ 3. CustomShell Design Rules
+## ⚠️ 4. Common Pitfalls
 
-### A. Paint & Invalidation 🔑
-- **NEVER use `InvalidateRect` alone** — it marks the update region but `GetMessage` may never synthesize `WM_PAINT` because the thread's message queue never fully drains (periodic timers from TaskbarWindow keep it busy).
-- **Always use `RedrawWindow(hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE)`** to force an immediate synchronous paint. This is implemented in `UiHost::Invalidate()`.
-- The double-buffer is created once at the window's client size and reused. GDI+ wallpaper is painted via `Graphics::DrawImage` on top of the GDI background fill; GDI icon/text rendering follows.
-
-### B. Desktop Window
-- Full-screen `WS_POPUP | WS_VISIBLE | WS_EX_TOOLWINDOW` at `HWND_BOTTOM`.
-- Wallpaper is loaded from the registry `HKCU\Control Panel\Desktop\Wallpaper` via `Config::Load()`.
-- Icons are enumerated via `SHGetDesktopFolder` → `EnumObjects` (includes hidden items), positioned in a grid (100×96 spacing, 12px margin).
-- `DesktopIconData` struct owns raw `HICON` and `LPITEMIDLIST` pointers; cleanup happens in `DesktopPanel::ClearIcons()`.
-- If you modify `SetIcons()`, do NOT null-out pointers after `std::move` — `DesktopIconData` has no destructor, and the moved-from source is empty.
-
-### C. Taskbar Window
-- Registered as an AppBar with `SHAppBarMessage(ABM_NEW)` and `ABM_SETPOS`.
-- Forces `HWND_TOPMOST` in `WM_WINDOWPOSCHANGING`.
-- 1-second timer for clock refresh and active-window tracking.
-- Tray area delegates to `TrayHost` for icon rendering and click handling.
-
-### D. Workspace and AppBar Management
-*   **Do not obscure maximized windows:** Shell panels (like taskbars) must register as AppBars using `SHAppBarMessage` (`ABM_NEW`, `ABM_SETPOS`). 
-*   **Work Area Validation:** If modifying the desktop work area directly, ensure the code uses `SystemParametersInfo(SPI_SETWORKAREA, ...)` correctly and broadcasts `WM_SETTINGCHANGE`.
-*   **Display Changes:** The shell must gracefully handle `WM_DISPLAYCHANGE` and `WM_DPICHANGED` to reposition AppBars.
-
-### E. Global Window Tracking (Taskbar behavior)
-*   **Window Hooks:** This project uses `SetWinEventHook` (not `RegisterShellHookWindow`) for tracking window creation/activation. See `WindowWatcher`.
-*   **Window Filtering:** Properly filter tracked windows (Check `IsWindowVisible`, `WS_EX_TOOLWINDOW`, `WS_EX_APPWINDOW`, and `GetWindow(hwnd, GW_OWNER)`).
-
-### F. Z-Order, Focus, and Activation
-*   **Non-Intrusive Overlays:** Launchers and search menus should use `WS_EX_NOACTIVATE` to avoid stealing keyboard focus when clicked, unless text input is explicitly required.
-*   **Layering Rules:** Desktop sits at `HWND_BOTTOM`. Taskbar sits at `HWND_TOPMOST` but yields to full-screen exclusive apps via `ABN_FULLSCREENAPP`.
+| Pitfall | Solution |
+|---------|----------|
+| XAML compiler doesn't show errors | Use VS MSBuild with `UseXamlCompilerExecutable=false` |
+| Struct layout mismatch C++ ↔ C# | Verify `[StructLayout]`, `MarshalAs(UnmanagedType.ByValTStr, SizeConst=N)`, and field ordering match exactly |
+| Icons not updating in ListView | Set `model.Icon` BEFORE adding to ObservableCollection (no INotifyPropertyChanged) |
+| WiFi/BT toggle doesn't reflect state | Call `UpdateWifiState()`/`UpdateBtState()` after toggling |
+| Shortcut target has `%windir%` unexpanded | Use `IShellLink::GetIDList` → `SHGetPathFromIDListW` for proper expansion |
+| Non-app items in start menu | Add name filter in `IsAppItem()` in `AppLauncher.cpp` |
+| DLL not updated when running | Manually copy `shell_backend.dll` to the WinUI output directory after C++ build |
+| `SoftwareBitmap.LoadAsync` doesn't exist | Use `BitmapDecoder.CreateAsync(stream)` → `GetSoftwareBitmapAsync()` |
+| `Color` / `Colors` not found | `using Windows.UI;` for `Color`, `using Microsoft.UI;` for `Colors` |
 
 ---
 
-## 🔍 4. Debugging Approach (Headless CLI First)
-When tasked with a bug, **you must attempt to debug autonomously in headless mode via the CLI first.** Do not ask the user for manual help unless CLI automation fails.
+## 🔍 5. Debugging
 
-1.  **Hypothesize & Plan:** Analyze the symptom (blank desktop, missing icons, hang, crash, resource leak).
-2.  **Headless Diagnostic Execution:** Use terminal commands (PowerShell, `cdb.exe`, procdump, etc.) to gather memory dumps, handle counts, and call stacks.
-3.  **Trace Code Logic:** Follow the state changes in the code (`WS_VISIBLE`, Z-order, `WndProc` logic).
-4.  **Inject logging** via the project's variadic `LOG_INFO(...)` macros (they write to `OutputDebugStringA` and stdout). Rebuild via `cmake --build build --config Release`.
-5.  **Fallback to User (Stop & Ask):** *If and only if* the headless CLI tools fail to reveal the issue, or if the issue requires visual inspection that a terminal cannot provide (e.g., specific UI rendering artifacts), **stop executing commands and ask the user for help** using GUI tools.
+### C++ Backend Logs
+- Backend logs via `LOG_INFO("fmt", args)` — output to `OutputDebugStringA` and stdout.
+- Read logs from the shell (stdout is captured when running from CLI) or use DebugView.
 
----
+### C# App Diagnostics
+- Use `System.Diagnostics.Debug.WriteLine()` or capture OutputDebugString from the WinUI app.
+- Check if shell_backend.dll loads: look for "IconManager: found N icons" in output.
 
-## 🛠️ 5. Using Windows Debugging Tools Correctly
-
-### Phase 1: Agent-Driven Headless CLI Debugging (Primary)
-Use the terminal environment to execute these tools. **Do this autonomously before asking the user for help.**
-
-*   **CDB (Command-line Debugger):** Path: `"C:\Program Files (x86)\Windows Kits\10\Debuggers\x64\cdb.exe"`. Always use `bm` (pattern breakpoint) instead of `bp` because C++ name mangling makes fully qualified names unpredictable:
-    ```
-    bm shellhost!*DesktopPanel*Paint
-    bm shellhost!*UiHost*Invalidate
-    ```
-    *   *Quick trace (run for N seconds then dump):*
-        ```
-        cdb -o -g -c "bm shellhost!*DrawIcon*; g 10s; bl; ~*kv; q" shellhost.exe
-        ```
-    *   *Check if Paint is called with correct children count (critical for desktop icons):*
-        ```
-        cdb -o -g -c "bm shellhost!*DesktopPanel*Paint; g 10s; bl; q" shellhost.exe
-        ```
-        Read the `OutputDebugString` output in CDB's stdout — look for log lines like `DesktopPanel::Paint called, children=76 icons=76`.
-    *   *Analyze Dumps:* Run `cdb -z crash.dmp -c "!analyze -v; q"` to automatically parse a crash dump without opening a GUI.
-    *   *Symbol loading is deferred by default; use `.symopt+ 0x100` and `ld *` to force full symbol load.*
-*   **PowerShell for Resource Leaks:** Query handles and threads without Task Manager.
-    *   Run `Get-Process shellhost | Select-Object Handles, Threads` to check for resource exhaustion.
-*   **Sysinternals CLI (if available):**
-    *   Use `procdump -ma -h shellhost.exe` to generate a dump if a window hangs (Not Responding).
-    *   Use `handle.exe -p shellhost.exe` to see if the process is hoarding specific objects.
-*   **Log Injection:** The LOG macros now support printf-style format strings (`LOG_INFO("icons=%zu", count)`) and output to both stdout and `OutputDebugStringA`. Rebuild with `cmake --build build --config Release`. Read output via CDB (stdout is captured) or DebugView (`dbgview.exe`).
-
-### Known CDB Pitfalls for this Project
-| Issue | Solution |
-|-------|----------|
-| C++ name mangling breaks `bp` | Use `bm shellhost!*FuncName*` instead |
-| `Shell host initialized.` appears but no Paint | Check `InvalidateRect` — replace with `RedrawWindow` |
-| No PDB symbols | Build with RelWithDebInfo config: `cmake --build build --config RelWithDebInfo` |
-| Output truncated | Don't use `-z` (dump mode) for live debugging; use `-o -g` |
-
-### Phase 2: User-Assisted GUI Debugging (Fallback)
-**STOP AND ASK THE USER:** If your CLI checks (CDB, PowerShell) fail, or if the bug is purely visual/Z-order related and requires inspection, halt your actions. Ask the user to run the following GUI tools and report the output:
-
-*   **Spy++ (`spyxx.exe`):** 
-    *   Ask the user to inspect the Window Tree. Request the exact **Styles**, **Extended Styles**, and Z-order of the problematic window.
-    *   Ask the user to log messages for the specific window (instruct them to filter out high-volume messages like `WM_MOUSEMOVE` and `WM_TIMER`).
-*   **Application Verifier (AppVerif):**
-    *   If you suspect elusive memory corruption or invalid handle usage (`STATUS_INVALID_HANDLE`), ask the user to add the executable to Application Verifier (enable Basics: Handles, Heaps, Locks) and run it under a GUI debugger.
-*   **Visual WinDbg / Visual Studio:**
-    *   For deep interactive stepping that `cdb` scripts cannot easily handle.
+### Testing Runtime
+```powershell
+$exe = "src/WinUIShell/bin/Debug/net8.0-windows10.0.19041.0/win-x64/WinUIShell.exe"
+$p = [System.Diagnostics.Process]::Start($exe)
+Start-Sleep -Seconds 3
+if (!$p.HasExited) { $p.Kill(); Write-Host "OK" }
+```
 
 ---
 
-## ⚠️ 6. Common Pitfalls to Avoid in Proposals
-*   **Stealing Focus Unintentionally:** Popping up shell notifications without `SW_SHOWNOACTIVATE` / `WS_EX_NOACTIVATE`.
-*   **Improper Fullscreen Handling:** Failing to yield `HWND_TOPMOST` status when another application (like a game) goes fullscreen.
-*   **Leaking Icons:** Calling `ExtractIcon`/`SHGetFileInfo(SHGFI_ICON)` without calling `DestroyIcon()`.
-*   **Failing to call `DefWindowProc`:** (or the project's equivalent) for unhandled messages.
-*   **Ignoring high-DPI (Per-Monitor v2) scaling:** Desktop shells span multiple monitors with different scale factors. Use `GetSystemMetricsForDpi` instead of standard `GetSystemMetrics`.
-*   **Hardcoding string types:** Respect the project's usage of `std::wstring` for Win32 APIs and use the correct suffix (`-W` APIs, since `UNICODE` is defined).
-*   **Using `InvalidateRect` instead of `RedrawWindow`:** In this project, `InvalidateRect` with `FALSE` erase may never trigger `WM_PAINT` due to the message queue never fully draining (timers from TaskbarWindow). Always use `RedrawWindow(..., RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE)`.
-*   **Assuming `Config::Load()` reads a config file:** It returns struct defaults — only `wallpaperPath` is populated (from registry). There is no JSON config parser yet. The sample `shell.config.json.sample` is not read at runtime.
-*   **Modularizing `DesktopIconData` ownership:** The struct holds raw `HICON` and `LPITEMIDLIST` pointers with no destructor. Ownership is managed by `DesktopPanel::m_icons` (which frees in `ClearIcons`). Widget children borrow the pointers. Never free them from outside `ClearIcons`.
+## 🔧 6. Installer & Shell Registration
+
+### Installer
+- **Tool:** Inno Setup (`installer/CustomShell.iss`)
+- Deploys `WinUIShell.exe` + all files from the release output directory.
+- Runs `Enable-ShellLauncher.ps1` to register as boot shell.
+
+### Shell Launcher v2
+- Already configured: `config/ShellLauncherConfiguration.xml` + `config/Enable-ShellLauncher.ps1`
+- Uses Windows `Client-EmbeddedShellLauncher` optional feature.
+- Falls back to registry `HKLM\...\Winlogon\Shell` if v2 not available.
+- **Configs refer to `C:\Program Files\CustomShell\WinUIShell.exe`** (NOT the old shellhost.exe).
+
+### CI
+- `.github/workflows/ci.yml` builds C++ backend + C# frontend on `windows-2022`.
+- Installs MSVC via `ilammy/msvc-dev-cmd`, .NET 8 via `setup-dotnet`.

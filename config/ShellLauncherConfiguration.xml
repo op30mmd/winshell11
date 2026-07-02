@@ -2,7 +2,7 @@
 <ShellConfiguration xmlns="http://schemas.microsoft.com/ShellLauncher/2019/Configuration">
   <Profiles>
     <Profile ID="{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}">
-      <Shell Shell="C:\Program Files\CustomShell\shellhost.exe">
+      <Shell Shell="C:\Program Files\CustomShell\WinUIShell.exe">
         <ReturnCodeActions>
           <ReturnCodeAction ReturnCode="0" Action="RestartShell" />
           <ReturnCodeAction ReturnCode="1" Action="RestartShell" />

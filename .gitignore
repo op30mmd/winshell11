@@ -1,6 +1,27 @@
+# Build outputs
 build/
+cmake-build-*/
 dist/
 installer/Output/
+
+# .NET
+**/bin/
+**/obj/
 *.user
 *.suo
+*.DotSettings.user
+
+# Visual Studio
 .vs/
+
+# Backup files
+*.bak
+*.orig
+
+# Debug artifacts
+crashdumps/
+fusion_log/
+
+# Misc
+*.log
+*.tmp

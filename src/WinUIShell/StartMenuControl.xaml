@@ -1,0 +1,94 @@
+<UserControl
+    x:Class="WinUIShell.StartMenuControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:local="using:WinUIShell"
+    Width="640" Height="620">
+    <UserControl.Resources>
+        <local:ShowCategoryConverter x:Key="ShowCategoryConverter"/>
+        <Style x:Key="AppItemButton" TargetType="Button">
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="Margin" Value="2,0,2,2"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="RootGrid">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal"/>
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0:0:0.1" Value="{ThemeResource ControlFillColorSecondary}"/>
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0:0:0" Value="{ThemeResource ControlFillColorTertiary}"/>
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <ContentPresenter Content="{TemplateBinding Content}"
+                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              Margin="8,0,8,0"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid RowDefinitions="Auto,Auto,*" Margin="0,14,0,8">
+        <TextBox x:Name="SearchBox" PlaceholderText="&#xE71A;  Search apps"
+                 Height="36" Margin="14,0,14,0" FontSize="14"
+                 BorderThickness="0" CornerRadius="8"
+                 TextChanged="OnSearchChanged" Grid.Row="0"/>
+
+        <TextBlock Text="All apps" FontSize="14" FontWeight="SemiBold"
+                   Margin="14,12,14,4" Grid.Row="1"/>
+
+        <ListView x:Name="AppsListView" MaxHeight="480"
+                  Margin="8,0,8,0" Grid.Row="2"
+                  Background="Transparent" BorderThickness="0"
+                  SelectionMode="None"
+                  ScrollViewer.VerticalScrollMode="Auto"
+                  ScrollViewer.VerticalScrollBarVisibility="Visible">
+            <ListView.ItemContainerTransitions>
+                <EntranceThemeTransition IsStaggeringEnabled="True" FromHorizontalOffset="0" FromVerticalOffset="20"/>
+            </ListView.ItemContainerTransitions>
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Button Style="{StaticResource AppItemButton}"
+                            Click="OnAppClick"
+                            Tag="{Binding Path}">
+                        <Grid ColumnDefinitions="32,*,Auto" ColumnSpacing="8">
+                            <Image Grid.Column="0" Source="{Binding Icon}"
+                                   Width="24" Height="24"
+                                   VerticalAlignment="Center"
+                                   HorizontalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding Name}" FontSize="14"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Text="{Binding CategoryLabel}" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorSecondary}"
+                                           VerticalAlignment="Center"
+                                           Visibility="{Binding CategoryLabel, Converter={StaticResource ShowCategoryConverter}}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Button>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
+</UserControl>
