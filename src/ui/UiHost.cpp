@@ -25,8 +25,12 @@ void UiHost::SetRoot(std::unique_ptr<Widget> root) {
 }
 
 void UiHost::Invalidate() {
-    if (m_hwnd)
-        InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (m_hwnd) {
+        // Use RedrawWindow to reliably generate WM_PAINT (InvalidateRect can
+        // fail to trigger a paint when the message queue is never fully idle,
+        // e.g. when a periodic timer runs on the same thread).
+        RedrawWindow(m_hwnd, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+    }
 }
 
 void UiHost::PerformLayout() {

@@ -1,4 +1,5 @@
 #include "DesktopWidgets.h"
+#include "common/Logger.h"
 #include "ui/Renderer.h"
 #include "ui/Theme.h"
 #include "ui/UiHost.h"
@@ -54,11 +55,7 @@ void DesktopPanel::ClearIcons() {
 void DesktopPanel::SetIcons(std::vector<DesktopIconData>& icons) {
     ClearIcons();
     m_icons = std::move(icons);
-    // Null out the source so they don't free them
-    for (auto& icon : icons) {
-        icon.pidl = nullptr;
-        icon.hIcon = nullptr;
-    }
+    LOG_INFO("DesktopPanel: SetIcons with %zu icons", m_icons.size());
     RebuildChildren();
     if (GetHost())
         GetHost()->Invalidate();
@@ -72,6 +69,8 @@ void DesktopPanel::RebuildChildren() {
         iconWidget->SetIconData(iconData);
         AddChild(std::move(iconWidget));
     }
+
+    LOG_INFO("DesktopPanel: rebuilt %zu children, m_icons=%zu", Children().size(), m_icons.size());
 
     if (GetHost())
         GetHost()->PerformLayout();

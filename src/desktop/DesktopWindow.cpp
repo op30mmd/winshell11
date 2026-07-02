@@ -130,13 +130,23 @@ void DesktopWindow::LaunchItem(int index) {
 }
 
 void DesktopWindow::BuildWidgetTree() {
+    LOG_INFO("DesktopWindow: building widget tree (wallpaper='%ls')",
+             m_config.wallpaperPath.c_str());
+
     auto panel = std::make_unique<DesktopPanel>();
 
     // Try to load wallpaper
     if (!m_config.wallpaperPath.empty()) {
         Image* img = LoadWallpaperImage(m_config.wallpaperPath);
-        if (img)
+        if (img) {
+            LOG_INFO("DesktopWindow: wallpaper loaded successfully");
             panel->SetWallpaper(img);
+        } else {
+            LOG_WARNING("DesktopWindow: failed to load wallpaper from '%ls'",
+                        m_config.wallpaperPath.c_str());
+        }
+    } else {
+        LOG_INFO("DesktopWindow: no wallpaper path configured, using solid color");
     }
 
     m_ui.SetRoot(std::move(panel));
@@ -167,6 +177,8 @@ bool DesktopWindow::Create(HINSTANCE hInstance, const common::DesktopConfig& con
         m_ui.Attach(m_hwnd);
         m_ui.GetTheme().background = RGB(30, 30, 36);
         BuildWidgetTree();
+        // Force an immediate paint so the window content is drawn right away.
+        UpdateWindow(m_hwnd);
     }
 
     return m_hwnd != nullptr;

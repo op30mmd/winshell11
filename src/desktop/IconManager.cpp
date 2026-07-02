@@ -31,9 +31,12 @@ void IconManager::EnumerateIcons() {
     PIDLIST_ABSOLUTE pidlDesktop = nullptr;
     SHGetKnownFolderIDList(FOLDERID_Desktop, 0, nullptr, &pidlDesktop);
 
+    LOG_INFO("IconManager: enumerating desktop icons...");
+
     IEnumIDList* pEnum = nullptr;
     HRESULT hr = pDesktopFolder->EnumObjects(nullptr, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, &pEnum);
     if (SUCCEEDED(hr) && pEnum) {
+        LOG_INFO("IconManager: enumeration started successfully");
         PITEMID_CHILD pidlChild;
         while (pEnum->Next(1, &pidlChild, nullptr) == S_OK) {
             STRRET strName;
@@ -84,6 +87,8 @@ void IconManager::EnumerateIcons() {
         }
         pEnum->Release();
     }
+
+    LOG_INFO("IconManager: found %zu icons", m_icons.size());
 
     if (pidlDesktop)
         CoTaskMemFree(pidlDesktop);
