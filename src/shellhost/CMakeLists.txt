@@ -8,6 +8,7 @@ add_executable(shellhost
 
 target_link_libraries(shellhost PRIVATE
     shell_common
+    shell_ui
     shell_desktop
     shell_watcher
     shell_taskbar
