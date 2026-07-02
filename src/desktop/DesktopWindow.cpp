@@ -13,49 +13,13 @@ namespace shell::desktop {
 
 using namespace Gdiplus;
 
-// GDI+ wrapper for image loading
-class GdiPlusImage {
-public:
-    GdiPlusImage(const std::wstring& path) {
-        m_image = Image::FromFile(path.c_str(), FALSE);
-    }
-    ~GdiPlusImage() { delete m_image; }
-    bool IsValid() const { return m_image && m_image->GetLastStatus() == Ok; }
-    Image* Get() const { return m_image; }
-
-private:
-    Image* m_image = nullptr;
-};
-
-void DesktopWindow::SetIcons(std::vector<DesktopIconData>& icons) {
-    ClearIcons();
-    // Take ownership of PIDL pointers from the source
-    m_icons = std::move(icons);
-    // Null out the source so they don't free them
-    for (auto& icon : icons) {
-        icon.pidl = nullptr;
-        icon.hIcon = nullptr;
-    }
-    if (m_hwnd)
-        InvalidateRect(m_hwnd, nullptr, TRUE);
-}
-
-void DesktopWindow::ClearIcons() {
-    for (auto& icon : m_icons) {
-        if (icon.hIcon)
-            DestroyIcon(icon.hIcon);
-        if (icon.pidl)
-            CoTaskMemFree(icon.pidl);
-    }
-    m_icons.clear();
-}
-
-DesktopWindow::~DesktopWindow() {
-    ClearIcons();
-    delete reinterpret_cast<GdiPlusImage*>(m_wallpaper);
-    if (m_gdiplusToken) {
-        GdiplusShutdown(m_gdiplusToken);
-    }
+// GDI+ wrapper for image loading (used during window creation)
+static Image* LoadWallpaperImage(const std::wstring& path) {
+    auto* img = Image::FromFile(path.c_str(), FALSE);
+    if (img && img->GetLastStatus() == Ok)
+        return img;
+    delete img;
+    return nullptr;
 }
 
 static void ShowDesktopContextMenu(HWND hwnd, POINT pt) {
@@ -85,10 +49,13 @@ static void ShowDesktopContextMenu(HWND hwnd, POINT pt) {
 }
 
 void DesktopWindow::ShowItemMenu(HWND hwnd, POINT pt, int index) {
-    if (index < 0 || index >= (int)m_icons.size())
+    auto* panel = static_cast<DesktopPanel*>(m_ui.GetRoot());
+    if (!panel) return;
+    const auto& icons = panel->GetIcons();
+    if (index < 0 || index >= (int)icons.size())
         return;
 
-    LPITEMIDLIST pidlAbs = m_icons[index].pidl;
+    LPITEMIDLIST pidlAbs = icons[index].pidl;
     if (!pidlAbs)
         return;
 
@@ -130,10 +97,13 @@ void DesktopWindow::ShowItemMenu(HWND hwnd, POINT pt, int index) {
 }
 
 void DesktopWindow::LaunchItem(int index) {
-    if (index < 0 || index >= (int)m_icons.size())
+    auto* panel = static_cast<DesktopPanel*>(m_ui.GetRoot());
+    if (!panel) return;
+    const auto& icons = panel->GetIcons();
+    if (index < 0 || index >= (int)icons.size())
         return;
 
-    const DesktopIconData& icon = m_icons[index];
+    const DesktopIconData& icon = icons[index];
 
     // Try filesystem path first
     if (!icon.path.empty()) {
@@ -159,21 +129,24 @@ void DesktopWindow::LaunchItem(int index) {
     }
 }
 
+void DesktopWindow::BuildWidgetTree() {
+    auto panel = std::make_unique<DesktopPanel>();
+
+    // Try to load wallpaper
+    if (!m_config.wallpaperPath.empty()) {
+        Image* img = LoadWallpaperImage(m_config.wallpaperPath);
+        if (img)
+            panel->SetWallpaper(img);
+    }
+
+    m_ui.SetRoot(std::move(panel));
+}
+
 bool DesktopWindow::Create(HINSTANCE hInstance, const common::DesktopConfig& config) {
     m_config = config;
 
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&m_gdiplusToken, &gdiplusStartupInput, nullptr);
-
-    if (!config.wallpaperPath.empty()) {
-        auto* img = new GdiPlusImage(config.wallpaperPath);
-        if (img->IsValid()) {
-            m_wallpaper = img;
-        } else {
-            delete img;
-            m_wallpaper = nullptr;
-        }
-    }
 
     const wchar_t CLASS_NAME[] = L"ShellDesktopWindowClass";
     WNDCLASSW wc = {};
@@ -191,55 +164,23 @@ bool DesktopWindow::Create(HINSTANCE hInstance, const common::DesktopConfig& con
 
     if (m_hwnd) {
         SetWindowPos(m_hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        m_ui.Attach(m_hwnd);
+        m_ui.GetTheme().background = RGB(30, 30, 36);
+        BuildWidgetTree();
     }
 
     return m_hwnd != nullptr;
 }
 
-void DesktopWindow::DrawWallpaper(HDC hdc) {
-    RECT rc;
-    GetClientRect(m_hwnd, &rc);
-    int w = rc.right - rc.left;
-    int h = rc.bottom - rc.top;
-
-    if (m_wallpaper) {
-        auto* img = reinterpret_cast<GdiPlusImage*>(m_wallpaper);
-        Graphics graphics(hdc);
-        graphics.SetInterpolationMode(InterpolationModeHighQualityBicubic);
-        graphics.DrawImage(img->Get(), 0, 0, w, h);
-    } else {
-        HBRUSH hBrush = CreateSolidBrush(RGB(30, 30, 36));
-        FillRect(hdc, &rc, hBrush);
-        DeleteObject(hBrush);
-    }
+DesktopWindow::~DesktopWindow() {
+    if (m_gdiplusToken)
+        GdiplusShutdown(m_gdiplusToken);
 }
 
-void DesktopWindow::DrawIcons(HDC hdc) {
-    for (const auto& icon : m_icons) {
-        if (icon.hIcon) {
-            DrawIconEx(hdc, icon.x, icon.y, icon.hIcon, 48, 48, 0, nullptr, DI_NORMAL);
-        }
-
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(220, 220, 220));
-        HFONT hFont = CreateFontW(14, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
-                                   CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, DEFAULT_PITCH, L"Segoe UI");
-        HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
-
-        RECT textRc = {icon.x, icon.y + 50, icon.x + 80, icon.y + 72};
-        DrawTextW(hdc, icon.name.c_str(), -1, &textRc, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
-        SelectObject(hdc, hOldFont);
-        DeleteObject(hFont);
-    }
-}
-
-int DesktopWindow::HitTestIcon(POINT pt) const {
-    for (size_t i = 0; i < m_icons.size(); i++) {
-        RECT iconRc = {m_icons[i].x, m_icons[i].y, m_icons[i].x + 80, m_icons[i].y + 72};
-        if (PtInRect(&iconRc, pt))
-            return (int)i;
-    }
-    return -1;
+void DesktopWindow::SetIcons(std::vector<DesktopIconData>& icons) {
+    auto* panel = static_cast<DesktopPanel*>(m_ui.GetRoot());
+    if (panel)
+        panel->SetIcons(icons);
 }
 
 LRESULT CALLBACK DesktopWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
@@ -254,39 +195,41 @@ LRESULT CALLBACK DesktopWindow::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, 
     }
 
     if (pThis) {
+        // Route paint and input through the UI host (once attached).
+        LRESULT result = 0;
+        if (pThis->m_ui.IsAttached() && pThis->m_ui.HandleMessage(uMsg, wParam, lParam, result))
+            return result;
+
         switch (uMsg) {
-            case WM_ERASEBKGND:
-                return 1;
-            case WM_PAINT: {
-                PAINTSTRUCT ps;
-                HDC hdc = BeginPaint(hwnd, &ps);
-                pThis->DrawWallpaper(hdc);
-                pThis->DrawIcons(hdc);
-                EndPaint(hwnd, &ps);
-                return 0;
-            }
-            case WM_CONTEXTMENU: {
-                POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                int hit = pThis->HitTestIcon(pt);
-                if (hit >= 0) {
-                    pThis->ShowItemMenu(hwnd, pt, hit);
-                } else {
-                    ShowDesktopContextMenu(hwnd, pt);
-                }
-                return 0;
-            }
             case WM_LBUTTONDBLCLK: {
                 POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-                int hit = pThis->HitTestIcon(pt);
-                if (hit >= 0) {
-                    pThis->LaunchItem(hit);
+                auto* panel = static_cast<DesktopPanel*>(pThis->m_ui.GetRoot());
+                if (panel) {
+                    int hit = panel->HitTestIcon(pt);
+                    if (hit >= 0)
+                        pThis->LaunchItem(hit);
                 }
                 return 0;
             }
+
+            case WM_CONTEXTMENU: {
+                POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+                auto* panel = static_cast<DesktopPanel*>(pThis->m_ui.GetRoot());
+                if (panel) {
+                    int hit = panel->HitTestIcon(pt);
+                    if (hit >= 0)
+                        pThis->ShowItemMenu(hwnd, pt, hit);
+                    else
+                        ShowDesktopContextMenu(hwnd, pt);
+                }
+                return 0;
+            }
+
             case WM_SYSCOMMAND:
                 if (wParam == SC_MINIMIZE || wParam == SC_CLOSE || wParam == SC_SCREENSAVE)
                     return 0;
                 return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+
             case WM_CLOSE:
                 return 0;
         }

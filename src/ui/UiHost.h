@@ -29,6 +29,7 @@ public:
     UiHost& operator=(const UiHost&) = delete;
 
     void Attach(HWND hwnd);
+    bool IsAttached() const { return m_hwnd != nullptr; }
     void SetRoot(std::unique_ptr<Widget> root);
     Widget* GetRoot() const { return m_root.get(); }
     Theme& GetTheme() { return m_theme; }

@@ -34,6 +34,7 @@ public:
     bool IsVisible() const { return m_visible; }
 
     Widget* AddChild(std::unique_ptr<Widget> child);
+    void ClearChildren();
     const std::vector<std::unique_ptr<Widget>>& Children() const { return m_children; }
     Widget* GetParent() const { return m_parent; }
 

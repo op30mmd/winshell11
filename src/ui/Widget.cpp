@@ -19,6 +19,10 @@ Widget* Widget::AddChild(std::unique_ptr<Widget> child) {
     return m_children.back().get();
 }
 
+void Widget::ClearChildren() {
+    m_children.clear();
+}
+
 void Widget::Paint(Renderer& renderer, const Theme& theme) {
     PaintChildren(renderer, theme);
 }

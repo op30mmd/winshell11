@@ -4,12 +4,9 @@
 
 #include <iphlpapi.h>
 #include <mmsystem.h>
-#include <setupapi.h>
-#include <devguid.h>
 #include <wlanapi.h>
 #include <windowsx.h>
 #include <wbemidl.h>
-#include <shobjidl.h>
 #include <vector>
 
 #pragma comment(lib, "ole32.lib")
@@ -18,8 +15,6 @@
 #pragma comment(lib, "Wlanapi.lib")
 #pragma comment(lib, "Iphlpapi.lib")
 #pragma comment(lib, "Winmm.lib")
-#pragma comment(lib, "setupapi.lib")
-#pragma comment(lib, "Shell32.lib")
 
 namespace shell::flyout {
 
@@ -62,38 +57,55 @@ static bool WmiExec(const std::wstring& query, Fn cb) {
 bool FlyoutWindow::Create(HINSTANCE hInstance) {
     const wchar_t CLASS[] = L"ShellFlyoutClass";
     WNDCLASSW wc = {};
-    wc.style = CS_DBLCLKS | CS_DROPSHADOW;
+    wc.style = CS_DBLCLKS;
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS;
-    wc.hbrBackground = CreateSolidBrush(RGB(28, 28, 34));
+    wc.hbrBackground = nullptr;
     RegisterClassW(&wc);
 
     m_hwnd = CreateWindowExW(
-        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+        WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
         CLASS, L"Quick Settings", WS_POPUP,
         0, 0, m_width, m_height,
         nullptr, nullptr, hInstance, this);
 
     if (!m_hwnd) return false;
     SetLayeredWindowAttributes(m_hwnd, 0, 235, LWA_ALPHA);
+
+    // Attach the UI host and configure the theme to match the flyout palette.
+    m_ui.Attach(m_hwnd);
+    auto& theme          = m_ui.GetTheme();
+    theme.background     = RGB(28, 28, 34);
+    theme.surface        = RGB(42, 42, 48);
+    theme.surfaceHover   = RGB(55, 55, 62);
+    theme.surfacePressed = RGB(70, 70, 78);
+    theme.accent         = RGB(0, 120, 215);
+    theme.text           = RGB(220, 220, 225);
+    theme.textSecondary  = RGB(140, 140, 150);
+    theme.border         = RGB(50, 50, 55);
+    theme.cornerRadius   = 6;
+    theme.fontSize       = 13;
+    theme.fontFamily     = L"Segoe UI";
+
     return true;
 }
 
 // ── Widget tree construction ──────────────────────────────────────
 
-    m_volume = GetCurrentVolume();
-    m_hasBrightness = HasBrightnessControl();
-    m_brightness = m_hasBrightness ? GetCurrentBrightness() : -1;
-    m_wifiOn = true; // default on
+void FlyoutWindow::RebuildWidgetTree() {
+    // Reset cached widget pointers — they will be re-assigned below.
+    m_wifiLabel        = nullptr;
+    m_btLabel          = nullptr;
+    m_volumeSlider     = nullptr;
+    m_brightnessSlider = nullptr;
+    m_netLabel         = nullptr;
 
-    // Recalculate height
-    int h = PAD + TG_H + 8 + SEP + 8;
-    if (m_hasBrightness) h += 16 + SL_H + 6;
-    h += 16 + SL_H + 8 + SEP + 8;
-    h += 48 + 8 + SEP + 8;
-    h += BTN_H + PAD;
-    m_height = h;
+    // Root: vertical stack that fills the window.
+    auto root = std::make_unique<shell::ui::StackPanel>();
+    root->SetOrientation(shell::ui::Orientation::Vertical);
+    root->SetSpacing(0);
+    root->SetPadding(0);
 
     // ── Quick toggles (Wi-Fi / Bluetooth) ────────────────────────
     {
@@ -144,52 +156,105 @@ bool FlyoutWindow::Create(HINSTANCE hInstance) {
         section->SetPadding(14);
         section->SetPreferredSize(0, 78); // 14 + 16 + 4 + 30 + 14
 
-enum Sect {
-    S_NONE = -1,
-    S_WIFI, S_BT,
-    S_BRIGHT, S_VOL,
-    S_NET,
-    S_LOCK, S_SLEEP, S_RESTART, S_SHUTDOWN,
-};
+        auto lbl = std::make_unique<shell::ui::Label>();
+        lbl->SetText(L"Brightness");
+        lbl->SetSecondary(true);
+        lbl->SetPreferredSize(0, 16);
+        section->AddChild(std::move(lbl));
 
-int FlyoutWindow::HitTestSection(POINT pt) const {
-    int y = PAD;
-    // Toggles
-    if (pt.y >= y && pt.y < y + TG_H) {
-        if (pt.x >= PAD && pt.x < PAD + TG_W) return S_WIFI;
-        if (pt.x >= PAD + TG_W + 8 && pt.x < PAD + TG_W * 2 + 8) return S_BT;
-        return S_NONE;
+        auto slider = std::make_unique<shell::ui::Slider>();
+        slider->SetValue(m_brightness);
+        slider->SetPreferredSize(0, 30);
+        slider->SetOnChange([this](int v) { SetBrightness(v); });
+        m_brightnessSlider = static_cast<shell::ui::Slider*>(
+            section->AddChild(std::move(slider)));
+
+        root->AddChild(std::move(section));
+
+        auto sep = std::make_unique<shell::ui::Widget>();
+        sep->SetPreferredSize(0, 1);
+        root->AddChild(std::move(sep));
     }
 
-    // Brightness
-    if (m_hasBrightness) {
-        y += 16;
-        if (pt.y >= y && pt.y < y + SL_H) return S_BRIGHT;
-        y += SL_H + 6;
+    // ── Volume ────────────────────────────────────────────────────
+    {
+        auto section = std::make_unique<shell::ui::StackPanel>();
+        section->SetOrientation(shell::ui::Orientation::Vertical);
+        section->SetSpacing(4);
+        section->SetPadding(14);
+        section->SetPreferredSize(0, 78); // 14 + 16 + 4 + 30 + 14
+
+        auto lbl = std::make_unique<shell::ui::Label>();
+        lbl->SetText(L"Volume");
+        lbl->SetSecondary(true);
+        lbl->SetPreferredSize(0, 16);
+        section->AddChild(std::move(lbl));
+
+        auto slider = std::make_unique<shell::ui::Slider>();
+        slider->SetValue(m_volume);
+        slider->SetPreferredSize(0, 30);
+        slider->SetOnChange([this](int v) { SetVolume(v); });
+        m_volumeSlider = static_cast<shell::ui::Slider*>(
+            section->AddChild(std::move(slider)));
+
+        root->AddChild(std::move(section));
     }
-    // Volume
-    y += 16;
-    if (pt.y >= y && pt.y < y + SL_H) return S_VOL;
-    y += SL_H + 8 + SEP + 8;
 
-    // Network
-    if (pt.y >= y && pt.y < y + 48) return S_NET;
-    y += 48 + 8 + SEP + 8;
+    // Separator
+    {
+        auto sep = std::make_unique<shell::ui::Widget>();
+        sep->SetPreferredSize(0, 1);
+        root->AddChild(std::move(sep));
+    }
 
-    // Power row
-    int pw = (m_width - PAD * 2 - 8) / 4;
-    if (pt.y >= y && pt.y < y + BTN_H) {
-        int px = PAD;
-        for (int i = 0; i < 4; i++) {
-            if (pt.x >= px && pt.x < px + pw) {
-                switch (i) {
-                    case 0: return S_LOCK;
-                    case 1: return S_SLEEP;
-                    case 2: return S_RESTART;
-                    case 3: return S_SHUTDOWN;
-                }
-            }
-            px += pw + 2;
+    // ── Network info ──────────────────────────────────────────────
+    {
+        auto section = std::make_unique<shell::ui::StackPanel>();
+        section->SetOrientation(shell::ui::Orientation::Vertical);
+        section->SetSpacing(0);
+        section->SetPadding(14);
+        section->SetPreferredSize(0, 76); // 14 + 48 + 14
+
+        auto lbl = std::make_unique<shell::ui::Label>();
+        lbl->SetText(GetNetworkInfo());
+        lbl->SetSecondary(true);
+        lbl->SetAlignment(DT_LEFT | DT_WORDBREAK);
+        lbl->SetPreferredSize(0, 48);
+        m_netLabel = static_cast<shell::ui::Label*>(
+            section->AddChild(std::move(lbl)));
+
+        root->AddChild(std::move(section));
+    }
+
+    // Separator
+    {
+        auto sep = std::make_unique<shell::ui::Widget>();
+        sep->SetPreferredSize(0, 1);
+        root->AddChild(std::move(sep));
+    }
+
+    // ── Power buttons ─────────────────────────────────────────────
+    {
+        auto row = std::make_unique<shell::ui::StackPanel>();
+        row->SetOrientation(shell::ui::Orientation::Horizontal);
+        row->SetSpacing(4);
+        row->SetPadding(14);
+        row->SetPreferredSize(0, 64); // 14 + 36 + 14
+
+        struct PowerBtn { const wchar_t* label; std::function<void()> action; };
+        PowerBtn btns[] = {
+            { L"Lock",      [this]() { shell::power::PowerManager::Lock();     Dismiss(); } },
+            { L"Sleep",     []()     { shell::power::PowerManager::Sleep();              } },
+            { L"Restart",   []()     { shell::power::PowerManager::Restart();            } },
+            { L"Shut down", []()     { shell::power::PowerManager::Shutdown();           } },
+        };
+
+        for (auto& pb : btns) {
+            auto btn = std::make_unique<shell::ui::Button>();
+            btn->SetText(pb.label);
+            btn->SetPreferredSize(0, 36); // width=0 → stretch equally via StackPanel
+            btn->SetOnClick(pb.action);
+            row->AddChild(std::move(btn));
         }
 
         root->AddChild(std::move(row));
@@ -198,18 +263,46 @@ int FlyoutWindow::HitTestSection(POINT pt) const {
     m_ui.SetRoot(std::move(root));
 }
 
-void FlyoutWindow::OnClick(int sect, HWND hwnd) {
-    (void)hwnd;
-    switch (sect) {
-        case S_WIFI:   ToggleWiFi(); break;
-        case S_BT:     ToggleBluetooth(); break;
-        case S_LOCK:   shell::power::PowerManager::Lock(); Dismiss(); break;
-        case S_SLEEP:  shell::power::PowerManager::Sleep(); break;
-        case S_RESTART: shell::power::PowerManager::Restart(); break;
-        case S_SHUTDOWN: shell::power::PowerManager::Shutdown(); break;
-        default: break;
-    }
-    InvalidateRect(m_hwnd, nullptr, TRUE);
+void FlyoutWindow::Show(HWND parent, int /*tx*/, int /*ty*/, int /*tw*/, int /*th*/) {
+    m_hwndParent = parent;
+
+    m_volume        = GetCurrentVolume();
+    m_hasBrightness = HasBrightnessControl();
+    m_brightness    = m_hasBrightness ? GetCurrentBrightness() : 80;
+    m_wifiOn        = true; // default on
+
+    // Recalculate window height based on content sections.
+    static constexpr int PAD   = 14;
+    static constexpr int TG_H  = 68;
+    static constexpr int SL_H  = 30;
+    static constexpr int BTN_H = 36;
+
+    int h = (PAD + TG_H + PAD) + 1;          // toggles + separator
+    if (m_hasBrightness)
+        h += (PAD + 16 + 4 + SL_H + PAD) + 1; // brightness + separator
+    h += (PAD + 16 + 4 + SL_H + PAD) + 1;    // volume + separator
+    h += (PAD + 48 + PAD) + 1;               // network + separator
+    h += (PAD + BTN_H + PAD);                // power
+    m_height = h;
+
+    // Position above the parent taskbar, right-aligned.
+    RECT prc;
+    GetWindowRect(parent, &prc);
+    int x = prc.right - m_width - 6;
+    int y = prc.top - m_height - 6;
+    if (y < 0) y = 0;
+
+    SetWindowPos(m_hwnd, HWND_TOPMOST, x, y, m_width, m_height,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    SetFocus(parent);
+
+    // Rebuild the widget tree with fresh state, then layout.
+    RebuildWidgetTree();
+}
+
+void FlyoutWindow::Dismiss() {
+    if (m_hwnd && IsWindowVisible(m_hwnd))
+        ShowWindow(m_hwnd, SW_HIDE);
 }
 
 // ── WiFi ──────────────────────────────────────────────────────────
@@ -266,20 +359,17 @@ void FlyoutWindow::ToggleWiFi() {
 
 // ── Bluetooth ─────────────────────────────────────────────────────
 
-bool FlyoutWindow::HasBluetoothHardware() {
-    HDEVINFO devInfo = SetupDiGetClassDevs(&GUID_DEVCLASS_BLUETOOTH, nullptr, nullptr,
-                                           DIGCF_PRESENT);
-    if (devInfo == INVALID_HANDLE_VALUE)
-        return false;
-    SP_DEVINFO_DATA devData = { sizeof(SP_DEVINFO_DATA) };
-    bool found = SetupDiEnumDeviceInfo(devInfo, 0, &devData) == TRUE;
-    SetupDiDestroyDeviceInfoList(devInfo);
-    return found;
-}
-
 std::wstring FlyoutWindow::GetBluetoothStatus() {
-    m_btOn = true;
-    return L"On";
+    // Quick check via registry for Bluetooth radios
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\BTHPORT\\Parameters",
+                      0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegCloseKey(hKey);
+        m_btOn = true;
+        return L"On";
+    }
+    m_btOn = false;
+    return L"Off";
 }
 
 void FlyoutWindow::ToggleBluetooth() {
@@ -379,79 +469,6 @@ std::wstring FlyoutWindow::GetNetworkInfo() {
         }
     }
     return L"No network";
-}
-
-// ═════════════════════════════════════════════════════════════════
-//  Painting
-// ═════════════════════════════════════════════════════════════════
-
-void FlyoutWindow::OnPaint(HDC hdc) {
-    int y = PAD;
-    FillCol(hdc, 0, 0, m_width, m_height, BG);
-
-    // ── Quick toggles ─────────────────────────────────────────────
-    // Wi-Fi
-    FillCol(hdc, PAD, y, TG_W, TG_H, m_wifiOn ? ACCENT : TG_BG);
-    DrawGlyph(hdc, PAD, y + 6, TG_W, 30, 0xE701, TEXT_ON, 26);
-    DrawLabel(hdc, PAD, y + TG_H - 22, TG_W, 18, L"Wi-Fi", TEXT_ON, 12, DT_CENTER);
-    // Bluetooth
-    int bx = PAD + TG_W + 8;
-    FillCol(hdc, bx, y, TG_W, TG_H, m_btOn ? ACCENT : TG_BG);
-    DrawGlyph(hdc, bx, y + 6, TG_W, 30, 0xE702, TEXT_ON, 26);
-    DrawLabel(hdc, bx, y + TG_H - 22, TG_W, 18, L"Bluetooth", TEXT_ON, 12, DT_CENTER);
-    y += TG_H + 8;
-
-    FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
-    y += SEP + 8;
-
-    // ── Brightness ────────────────────────────────────────────────
-    if (m_hasBrightness) {
-        DrawLabel(hdc, PAD, y, 120, 16, L"Brightness", TEXT_DIM, 12);
-        y += 16;
-        int sw = m_width - PAD * 2;
-        FillCol(hdc, PAD, y, sw, SL_H, SL_BG);
-        int fw = sw * m_brightness / 100;
-        FillCol(hdc, PAD, y, fw, SL_H, SL_FILL);
-        DrawGlyph(hdc, PAD + 4, y, SL_H, SL_H, 0xE706, TEXT_ON, 16);
-        std::wstring bs = std::to_wstring(m_brightness) + L"%";
-        DrawLabel(hdc, PAD + sw - 48, y, 44, SL_H, bs, TEXT_ON, 12, DT_RIGHT | DT_VCENTER);
-        y += SL_H + 6;
-    }
-
-    // ── Volume ────────────────────────────────────────────────────
-    DrawLabel(hdc, PAD, y, 120, 16, L"Volume", TEXT_DIM, 12);
-    y += 16;
-    {   int sw = m_width - PAD * 2;
-        FillCol(hdc, PAD, y, sw, SL_H, SL_BG);
-        int fw = sw * m_volume / 100;
-        FillCol(hdc, PAD, y, fw, SL_H, SL_FILL);
-        DrawGlyph(hdc, PAD + 4, y, SL_H, SL_H, 0xE995, TEXT_ON, 16);
-        std::wstring vs = std::to_wstring(m_volume) + L"%";
-        DrawLabel(hdc, PAD + sw - 48, y, 44, SL_H, vs, TEXT_ON, 12, DT_RIGHT | DT_VCENTER);
-        y += SL_H + 8;
-    }
-
-    FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
-    y += SEP + 8;
-
-    // ── Network info ──────────────────────────────────────────────
-    std::wstring ni = GetNetworkInfo();
-    DrawLabel(hdc, PAD, y, m_width - PAD * 2, 48, ni, TEXT_DIM, 11, DT_LEFT | DT_WORDBREAK);
-    y += 48 + 8;
-
-    FillCol(hdc, PAD, y, m_width - PAD * 2, SEP, SEP_BG);
-    y += SEP + 8;
-
-    // ── Power buttons ─────────────────────────────────────────────
-    static const wchar_t* icons[] = {L"\uE72E", L"\uE73A", L"\uE777", L"\uE7E8"};
-    static const wchar_t* labels[] = {L"Lock", L"Sleep", L"Restart", L"Shut down"};
-    int pw = (m_width - PAD * 2 - 8) / 4;
-    for (int i = 0; i < 4; i++) {
-        int px = PAD + i * (pw + 2);
-        FillCol(hdc, px, y, pw, BTN_H, CARD);
-        DrawGlyph(hdc, px, y + 2, pw, 20, icons[i][0], TEXT_ON, 18);
-        DrawLabel(hdc, px, y + 20, pw, 14, labels[i], TEXT_DIM, 10, DT_CENTER);
-    }
 }
 
 // ═════════════════════════════════════════════════════════════════
