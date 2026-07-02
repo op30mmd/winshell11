@@ -1,4 +1,6 @@
 #pragma once
+#include "ui/UiHost.h"
+#include "ui/Controls.h"
 #include <string>
 #include <windows.h>
 
@@ -13,9 +15,9 @@ public:
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
-    void OnPaint(HDC hdc);
-    int HitTestSection(POINT pt) const;
-    void OnClick(int section, HWND hwnd);
+
+    // Builds (or rebuilds) the widget tree from current state.
+    void RebuildWidgetTree();
 
     void ToggleWiFi();
     void ToggleBluetooth();
@@ -42,8 +44,15 @@ private:
     bool m_hasBrightness = false;
     bool m_hasBluetooth = false;
 
-    bool m_draggingVolume = false;
-    bool m_draggingBrightness = false;
+    // New UI framework host
+    shell::ui::UiHost m_ui;
+
+    // Pointers into the widget tree for live updates (owned by m_ui).
+    shell::ui::Label*  m_wifiLabel        = nullptr;
+    shell::ui::Label*  m_btLabel          = nullptr;
+    shell::ui::Slider* m_volumeSlider     = nullptr;
+    shell::ui::Slider* m_brightnessSlider = nullptr;
+    shell::ui::Label*  m_netLabel         = nullptr;
 };
 
 } // namespace shell::flyout

@@ -10,6 +10,7 @@ if(MSVC)
 endif()
 
 add_subdirectory(src/common)
+add_subdirectory(src/ui)
 add_subdirectory(src/desktop)
 add_subdirectory(src/windowwatcher)
 add_subdirectory(src/taskbar)
