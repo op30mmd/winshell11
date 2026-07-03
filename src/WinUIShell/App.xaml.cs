@@ -80,8 +80,8 @@ public partial class App : Application
         {
             var di = icons[i];
             var img = new Image { Width = 48, Height = 48 };
-            Canvas.SetLeft(img, di.x);
-            Canvas.SetTop(img, di.y - 48 - 16);
+            Canvas.SetLeft(img, di.x + 26);
+            Canvas.SetTop(img, di.y + 8);
             canvas.Children.Add(img);
 
             var label = new TextBlock
@@ -93,8 +93,8 @@ public partial class App : Application
                 Width = 100,
                 TextWrapping = TextWrapping.Wrap
             };
-            Canvas.SetLeft(label, di.x - 26);
-            Canvas.SetTop(label, di.y - 16);
+            Canvas.SetLeft(label, di.x);
+            Canvas.SetTop(label, di.y + 60);
             canvas.Children.Add(label);
 
             var src = await IconHelper.FromPathAsync(di.parsingName);
@@ -106,6 +106,7 @@ public partial class App : Application
     private void CreateFlyout()
     {
         _flyout = new Window();
+        _flyout.SystemBackdrop = new MicaBackdrop();
         _flyout.ExtendsContentIntoTitleBar = true;
         _flyoutControl = new FlyoutControl();
         _flyout.Content = _flyoutControl;
@@ -115,6 +116,10 @@ public partial class App : Application
             unchecked((int)(NativeMethods.WS_POPUP | NativeMethods.WS_VISIBLE)));
         NativeMethods.SetWindowLongW(hwnd, NativeMethods.GWL_EXSTYLE,
             NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE);
+
+        int corner = NativeMethods.DWMWCP_ROUND;
+        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+
         var appWindow = GetAppWindow(_flyout);
         appWindow.Hide();
     }
@@ -122,6 +127,7 @@ public partial class App : Application
     private void CreateStartMenu()
     {
         _startMenu = new Window();
+        _startMenu.SystemBackdrop = new MicaBackdrop();
         _startMenu.ExtendsContentIntoTitleBar = true;
         _startMenuControl = new StartMenuControl();
         _startMenu.Content = _startMenuControl;
@@ -131,6 +137,10 @@ public partial class App : Application
             unchecked((int)(NativeMethods.WS_POPUP | NativeMethods.WS_VISIBLE)));
         NativeMethods.SetWindowLongW(hwnd, NativeMethods.GWL_EXSTYLE,
             NativeMethods.WS_EX_TOOLWINDOW | NativeMethods.WS_EX_NOACTIVATE);
+
+        int corner = NativeMethods.DWMWCP_ROUND;
+        NativeMethods.DwmSetWindowAttribute(hwnd, NativeMethods.DWMWA_WINDOW_CORNER_PREFERENCE, ref corner, sizeof(int));
+
         var appWindow = GetAppWindow(_startMenu);
         appWindow.Hide();
     }
@@ -150,7 +160,7 @@ public partial class App : Application
             Width = 48, Height = 48,
             CornerRadius = new CornerRadius(12)
         };
-        startBtn.Content = new FontIcon { Glyph = "\uE7A6", FontSize = 18 };
+        startBtn.Content = new FontIcon { Glyph = "\uE71D", FontSize = 18 };
         startBtn.Click += (_, _) => ToggleStartMenu();
         dock.Children.Add(startBtn);
 
@@ -222,7 +232,7 @@ public partial class App : Application
         {
             var hwnd = WindowNative.GetWindowHandle(_flyout);
             NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST,
-                ScreenW - 370, ScreenH - 48 - 500, 360, 500,
+                ScreenW - 360 - 12, ScreenH - 48 - 500 - 12, 360, 500,
                 NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_NOACTIVATE);
         }
     }
@@ -239,7 +249,7 @@ public partial class App : Application
         {
             var hwnd = WindowNative.GetWindowHandle(_startMenu);
             NativeMethods.SetWindowPos(hwnd, NativeMethods.HWND_TOPMOST,
-                10, ScreenH - 48 - 620, 640, 620,
+                12, ScreenH - 48 - 620 - 12, 640, 620,
                 NativeMethods.SWP_SHOWWINDOW | NativeMethods.SWP_NOACTIVATE);
         }
     }

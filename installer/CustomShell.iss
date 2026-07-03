@@ -11,8 +11,8 @@ DisableProgramGroupPage=yes
 UninstallDisplayName=CustomShell
 
 [Files]
-Source: "..\src\WinUIShell\bin\Release\net8.0-windows10.0.19041.0\win-x64\WinUIShell.exe"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\src\WinUIShell\bin\Release\net8.0-windows10.0.19041.0\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\src\WinUIShell\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\WinUIShell.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\src\WinUIShell\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\config\shell.config.json.sample"; DestDir: "{commonappdata}\CustomShell"; DestName: "shell.config.json"; Flags: ignoreversion
 ; Shell Launcher v2 configuration
 Source: "..\config\ShellLauncherConfiguration.xml"; DestDir: "{commonappdata}\Microsoft\ShellLauncher"; DestName: "ShellLauncherConfiguration.xml"; Flags: ignoreversion
