@@ -19,23 +19,13 @@ jobs:
     - name: Configure CMake
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-    - name: Build C++ backend
-      run: cmake --build build --config Release
-
     - name: Setup .NET
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: '8.0.x'
 
-    - name: Restore NuGet packages
-      run: dotnet restore src/WinUIShell/WinUIShell.csproj
-
-    - name: Build WinUI Shell
-      run: msbuild src/WinUIShell/WinUIShell.csproj /p:Configuration=Release /p:Platform=x64 /p:UseXamlCompilerExecutable=false /p:RestorePackages=false
-
-    - name: Build Installer
-      run: ISCC installer/CustomShell.iss
-      continue-on-error: true
+    - name: Build All (Backend, Frontend, Installer)
+      run: cmake --build build --config Release --target installer
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4

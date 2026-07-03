@@ -11,3 +11,15 @@ endif()
 add_subdirectory(src/common)
 add_subdirectory(src/windowwatcher)
 add_subdirectory(src/backend)
+add_subdirectory(src/WinUIShell)
+
+# Installer target (Inno Setup)
+find_program(ISCC_EXE ISCC)
+if(ISCC_EXE)
+    add_custom_target(installer
+        COMMAND ${ISCC_EXE} ${CMAKE_SOURCE_DIR}/installer/CustomShell.iss
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Building Setup Installer"
+    )
+    add_dependencies(installer WinUIShell)
+endif()
