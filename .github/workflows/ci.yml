@@ -31,7 +31,7 @@ jobs:
       run: dotnet restore src/WinUIShell/WinUIShell.csproj
 
     - name: Build WinUI Shell
-      run: dotnet build src/WinUIShell/WinUIShell.csproj --configuration Release --no-restore
+      run: msbuild src/WinUIShell/WinUIShell.csproj /p:Configuration=Release /p:Platform=x64 /p:UseXamlCompilerExecutable=false /p:RestorePackages=false
 
     - name: Build Installer
       run: ISCC installer/CustomShell.iss
