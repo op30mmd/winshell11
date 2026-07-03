@@ -150,7 +150,7 @@ public partial class App : Application
             Width = 48, Height = 48,
             CornerRadius = new CornerRadius(12)
         };
-        startBtn.Content = new FontIcon { Glyph = "\uE7A6", FontSize = 18 };
+        startBtn.Content = new FontIcon { Glyph = "\uE71D", FontSize = 18 };
         startBtn.Click += (_, _) => ToggleStartMenu();
         dock.Children.Add(startBtn);
 
