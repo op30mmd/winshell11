@@ -48,7 +48,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid RowDefinitions="Auto,Auto,*" Margin="0,14,0,8">
+    <Grid RowDefinitions="Auto,Auto,*" Margin="0,14,0,8" Background="Transparent">
         <TextBox x:Name="SearchBox" PlaceholderText="&#xE721;  Search apps"
                  Height="36" Margin="14,0,14,0" FontSize="14"
                  BorderThickness="0" CornerRadius="8"

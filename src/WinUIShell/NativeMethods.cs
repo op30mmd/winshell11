@@ -112,6 +112,9 @@ internal static class NativeMethods
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool DestroyIcon(IntPtr hIcon);
 
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int attrValue, int attrSize);
+
     internal static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
     internal static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
 
@@ -135,4 +138,7 @@ internal const uint WS_VISIBLE = 0x10000000;
     internal const int ABM_NEW = 0;
     internal const int ABM_SETPOS = 3;
     internal const int ABE_BOTTOM = 3;
+
+    internal const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    internal const int DWMWCP_ROUND = 2;
 }

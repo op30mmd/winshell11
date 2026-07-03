@@ -91,7 +91,7 @@
         </Style>
     </UserControl.Resources>
 
-    <Grid x:Name="LayoutRoot" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+    <Grid x:Name="LayoutRoot" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto" Background="Transparent">
         <TextBlock Text="Quick settings" FontSize="16" FontWeight="SemiBold"
                    Margin="16,16,16,4" Grid.Row="0"/>
         <Rectangle Height="1" Fill="{ThemeResource CardStrokeColorDefault}" 
