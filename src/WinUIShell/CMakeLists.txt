@@ -19,7 +19,6 @@ add_custom_target(WinUIShell
     COMMAND ${DOTNET_EXE} restore ${CMAKE_CURRENT_SOURCE_DIR}/WinUIShell.csproj
     COMMAND ${BUILD_TOOL} ${BUILD_COMMAND} ${CMAKE_CURRENT_SOURCE_DIR}/WinUIShell.csproj
             /p:Configuration=$<CONFIG>
-            /p:Platform=x64
             /p:UseXamlCompilerExecutable=false
             /p:RestorePackages=false
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
