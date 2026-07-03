@@ -80,8 +80,8 @@ public partial class App : Application
         {
             var di = icons[i];
             var img = new Image { Width = 48, Height = 48 };
-            Canvas.SetLeft(img, di.x);
-            Canvas.SetTop(img, di.y - 48 - 16);
+            Canvas.SetLeft(img, di.x + 26);
+            Canvas.SetTop(img, di.y + 8);
             canvas.Children.Add(img);
 
             var label = new TextBlock
@@ -93,8 +93,8 @@ public partial class App : Application
                 Width = 100,
                 TextWrapping = TextWrapping.Wrap
             };
-            Canvas.SetLeft(label, di.x - 26);
-            Canvas.SetTop(label, di.y - 16);
+            Canvas.SetLeft(label, di.x);
+            Canvas.SetTop(label, di.y + 60);
             canvas.Children.Add(label);
 
             var src = await IconHelper.FromPathAsync(di.parsingName);
